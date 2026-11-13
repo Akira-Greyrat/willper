@@ -17,7 +17,7 @@
 ## 三、用户与场景
 
 - 单用户，单机，本地数据；不做账号、不做云同步。
-- 一个工作区可以有多个学习目标，但同一时间只激活一个；界面只服务激活中的那个。
+- **一个会话的当前目录就是学习库的根**：数据落在 `<会话工作目录>/learning/`。同一目录里的多个会话共用同一个学习库（就是同一门课）；要学第二门，换个工作区或目录。v1 不做多目标切换，`meta.json` 里只有一个 `target`。
 - 题库是**问答题（开放题）**，不是选择题；答案由使用者口述或打字，AI 按要点覆盖判分。
 - 题目可能配图，但图片是**示意/补充**性质，不是解题必需；因此不做图片提取，只记页码锚点，点开右侧文档定位。
 
@@ -97,12 +97,16 @@ learning/
   terms.json                # 术语表（题干里的术语→释义）
   attempts.jsonl            # 答题记录，只追加
   progress.json             # 已读、收藏、标记、薄弱计数（可重建，但落盘省算）
-  inbox/                    # AI 写的草稿，待入库
-    <timestamp>-<name>.jsonl
+  inbox/                    # AI 写的草稿，待入库；commit 后移入 imported/
+    questions.jsonl
+    terms.jsonl
+  materials/                # 原始 PDF/MD/TXT + 它们对应的抽取文本
+    <slug>.txt              # agent 导入时写出的纯文本，用于锚定校验；缺失则降级
   reports/
     audit-<timestamp>.json  # 体检报告
-  materials/                # 使用者放入的原始 PDF/MD/TXT（可选，也可指向别处）
 ```
+
+根目录由**发起学习的那个会话的工作目录**决定（Host 侧 `ctx.workingDirectory.get(session)`），不是配置里的绝对路径；面板每个请求都带当前会话 id，工具则从 agent 自己的会话取。这样"AI 往哪儿写"和"面板从哪儿读"是同一个目录。
 
 写入一律"临时文件 + 原子改名"，并保留 `meta.json` 的 `version` 字段用于将来迁移。
 
@@ -172,7 +176,7 @@ learning/
 ```
 
 - `status`：`ok` | `needs-review` | `rejected`。只有 `ok` 进练习与抽查。
-- `flags` 取值：`missing_answer`、`truncated`、`duplicate_of:<id>`、`off_syllabus`、`answer_mismatch`、`outdated_suspect`、`anchor_missing`。
+- `flags` 取值：`missing_answer`、`truncated`、`duplicate_of:<id>`、`off_syllabus`、`answer_mismatch`、`outdated_suspect`、`anchor_missing`、`anchor_unverified`、`orphaned`。
 - `reference.provenance`：`source`（原题库）| `ai-drafted`（AI 补写，需人审）| `user`。**统计只算 `source` 与 `user`**，`ai-drafted` 另列。
 
 `attempts.jsonl` 一行一次作答：
@@ -192,12 +196,19 @@ Host 侧只有一个实现类 `LearningStore`（不是 Cordis Service，就是�
 
 ```
 createTarget(input) / readMeta() / writePlan(plan) / upsertNodes(nodes)
-ingestCommit(fileRef|inlineDraft) -> { accepted, needsReview, rejected, reasons[] }
+ingestCommit() -> { added, merged, needsReview, rejected, orphaned, reasons[] }
+upsertTerms(entries)
 updateQuestion(id, patch) / acceptDraft(id) / rejectDraft(id, reason)
 recordAttempt(attempt) / gradeAttempt(attemptId, grade)
 queryView(kind, params) -> 面板要的各种投影（树带覆盖计数、题目一页、报告、错题本）
 auditSubmit(findings) -> 写 reports/audit-*.json 并回写题目 flags
 ```
+
+`ingestCommit` 是**对账式**的，不是只追加：
+
+- 匹配键 = `source.file` 的归一化路径 + 题干归一化后的哈希。命中已有题 → 覆盖 `stem`、`reference`、`points`、`nodeId`、`related`、`tags`，保留 `status` 与历史作答，计作 `merged`；未命中 → 新增，计作 `added`。
+- **id 一律由 Host 铸**，草稿里不写 `id`。作答记录引用 `questionId`，所以 id 必须稳定——重新导入不会换 id，也就不会让历史成绩和题目脱钩。
+- 库里存在、但这次导入对应的材料里已经找不到的题，不删除，标 `orphaned` 并从练习队列剔除；作答历史保留，`queryView` 会单独列一栏供人决定删还是留。
 
 两个入口共用它：
 
@@ -212,13 +223,14 @@ auditSubmit(findings) -> 写 reports/audit-*.json 并回写题目 flags
 | --- | --- | --- |
 | `learning_status` | `{}` | 目标摘要、题库统计（ok / 待核对 / 重复 / 缺答案）、知识树覆盖、薄弱点前 5、建议下一步。只读。 |
 | `learning_plan` | `{ action: "get"\|"set_target"\|"upsert_tree"\|"set_plan", … }` | 建/改目标、增量写知识点树、写阶段计划。 |
-| `learning_import` | `{ action: "brief"\|"commit"\|"list" }` | `brief` 返回入库 schema、材料清单、分片建议；`commit` 校验 `inbox/` 全部草稿，返回 accept / needs-review / reject 计数与逐条原因。 |
+| `learning_import` | `{ action: "brief"\|"commit"\|"list" }` | `brief` 返回入库 schema、材料清单、分片建议，以及"三件套"要求：`inbox/questions.jsonl`、`inbox/terms.jsonl`、`materials/<slug>.txt`（该材料的抽取文本）；`commit` 校验并对账，返回 added / merged / needs-review / rejected / orphaned 计数与逐条原因。 |
 | `learning_question` | `{ action: "update"\|"accept"\|"reject"\|"add", question? , id?, patch?, reason? }` | 单题修正、接受/驳回 AI 草稿、手工加题。 |
 | `learning_audit` | `{ action: "brief"\|"submit", findings? }` | 体检：`brief` 给核对清单与判定标准；`submit` 写报告、回写 `flags`。 |
 | `learning_grade` | `{ attemptId }` | 读这次作答与参考答案，按要点判分，写回 `attempts.jsonl`。 |
 
 设计取舍：
-- **不逐题调工具**。导入是 `brief`（拿 schema）→ agent 用 `write` 把草稿写进 `learning/inbox/*.jsonl` → `commit` 一次校验入库。几百道题也只多一次工具调用。
+- **不逐题调工具**。导入是 `brief`（拿 schema）→ agent 用 `write` 把三件套写进 `learning/` → `commit` 一次校验入库。几百道题也只多一次工具调用。
+- **术语和题目同一批入库**，各自一个文件；这样"点术语出释义"在 v1 就能用，不需要额外一轮 AI。
 - `learning_grade` 只用 `attemptId`，不传答案正文：面板先把答案落盘，再发 `/learn grade <attemptId>`，避免长文本进命令行、也避免重复传输。
 
 ### 7.6 校验与防错（本项目的核心价值）
@@ -226,7 +238,9 @@ auditSubmit(findings) -> 写 reports/audit-*.json 并回写题目 flags
 `ingestCommit` 对每条草稿依次检查：
 
 1. **结构**：字段齐全、类型正确、`stem` 非空、`reference.answer` 与 `points` 至少有一个。
-2. **来源锚定**：`source.file` 必须存在，`source.anchor` 必须能在该材料的可抽取文本里找到（PDF 抽不出文本时降级为"必须给页码"，并置 `anchor_missing` 提示）。**这条挡的是 AI 编题。**
+2. **来源锚定**：`source.file` 必须存在；`source.anchor` 必须能在 `materials/<slug>.txt`（agent 导入时写出的抽取文本）里逐字找到。**这条挡的是 AI 编题。**
+   - 找不到锚点 → `anchor_missing`，进待核对。
+   - 该材料没有抽取文本（扫描件、PDF 抽不出字）→ 整批进待核对并标 `anchor_unverified`，页面给出"抽查后整批接受"的批量入口。宁可多一步人工，也不让未经核对的题悄悄进练习。
 3. **重复**：题干归一化（去空白、标点、全半角）后取指纹，与库内及本批互查；重复的进 `needs-review` 并标 `duplicate_of`。
 4. **知识点存在**：`nodeId` 必须在树里；不在的进 `needs-review`，不静默丢弃。
 5. **明显异常**：题干短于阈值、以问号结尾但没有答案、题干里出现"见下图"却没有 `hasImage` 等，逐条给 flag。
@@ -264,8 +278,9 @@ auditSubmit(findings) -> 写 reports/audit-*.json 并回写题目 flags
 - **体检页**：最新报告——覆盖缺口（零题知识点）、重复、可疑过时、缺答案、建议下一步。
 - **错题页**：按知识点聚合的薄弱题，按最近漏要点的次数排序。
 - **收藏页**：手动收藏。
-- **术语释义**：题干里的术语是行内按钮，点开一个浮层，显示释义、例句、"在这个知识点里的位置"。**释义在入库时已生成，点击不调模型。**
-- **关联 / 往深 / 往宽**：三组可点的问题串。点一下发 `/learn ask <问题>` 到当前会话，agent 在聊天里回答。
+- **术语释义**：题干里的术语是行内按钮，点开一个浮层，显示释义、例句、"在这个知识点里的位置"。**释义在入库时已生成，点击不调模型。** 没有释义的术语退化成纯文本，不弹空浮层。
+- **关联 / 往深 / 往宽**：三组可点的问题串。点一下发 `/learn ask <问题>` 到当前会话；面板顶部随即出现一条「已发送到对话 · 去看」，点了才切到对话面板（`ctx.layout.selectPanel('conversation')`），不强行把你从正在读的题上拽走；用侧栏图标切回来，题目位置保留。**不内嵌对话**：宿主不允许复用聊天组件，也不允许 iframe 一个页面进来。
+- **待核对卡**：显示 flag 原因与原文锚点，操作为「接受 / 手改 / 驳回」；v2 起多一个「让 AI 补答案」（走 `/learn answer <id>`，产出 `ai-drafted`，仍要你点接受才转正）。
 - **离开题目触发抽查**：切换题目或切页时，若满足冷却（≥ `quizCooldownMinutes`）且距上次抽查已过过 N 题，按 `leavePromptRate` 抽一道已读且分数低的题；弹一张卡，可答、可跳过、可"不再提醒"。
 - **答题与判分**：答完先给"自评要点清单"（本地、零成本）；`[让 AI 批改]` 才发 `/learn grade <attemptId>`，agent 判分回写，面板刷新显示要点覆盖与错处。默认 `gradingMode: "ai"` 时送交 AI 的按钮更显眼。
 
@@ -280,10 +295,11 @@ auditSubmit(findings) -> 写 reports/audit-*.json 并回写题目 flags
 - `/learn audit` —— 请 agent 做体检。
 - `/learn grade <attemptId>` —— 判这次作答。
 - `/learn ask <问题>` —— 就当前题目追问。
+- `/learn answer <questionId>` —— 请 AI 给这道缺答案的题补一份参考答案（v2）。
 
-命令处理器做两件事：把一段结构化说明注入本次 agent 回合（`agent.inject` / `followup`），并在会话里留一行命令记录。**AI 的回答照常进聊天流**，面板只负责展示结构化结果。
+`commands.execute` 是 `@Remote` 方法，`references/user-actions.md` 明确把它当作"UI 驱动 Host 操作"的通道，所以这是**既定路径**而不是待验证的猜测。命令处理器做两件事：把一段结构化说明注入本次 agent 回合（`agent.inject` / `followup`），并在会话里留一行命令记录。**AI 的回答照常进聊天流**，面板只负责展示结构化结果。
 
-若 `ctx.remote.commands.execute` 在实际环境里不可用，退化方案：面板把要发的话写进剪贴板并提示"粘贴到输入框回车"。这条退化路径在首日验证里确定。
+兜底仍然保留但降级为"复制按钮"：万一命令执行在某次升级后不可用，面板把要说的话复制到剪贴板并提示粘贴，不让整个功能卡死。
 
 ### 7.9 界面用料与本地化
 
@@ -309,19 +325,19 @@ auditSubmit(findings) -> 写 reports/audit-*.json 并回写题目 flags
 ## 八、分期
 
 **v1（可用的最小闭环）**
-入库（brief → 草稿 → commit 校验 → 待核对）＋ 知识点树 ＋ 过题页（题干、术语释义、参考答案、上一题/下一题、已读标记）＋ 收藏。此时能真正开始学。
+入库（brief → 三件套 → commit 对账 → 待核对）＋ 知识点树 ＋ 过题页（题干、术语释义、参考答案、上一题/下一题、已读标记）＋ 收藏 ＋ 待核对卡的接受/手改/驳回。此时能真正开始学。
 
 **v2**
-阶段计划页、抽查与 AI 判分、错题本、关联/深/广问题串。
+阶段计划页、抽查与 AI 判分、错题本、关联/深/广问题串、AI 补答缺失答案（`ai-drafted`）。
 
 **v3**
-体检报告、题库页的批量核对操作、材料清单与多文件导入、设置页。
+体检报告、题库页的批量核对与 `orphaned` 处理、多文件导入、页码定位到右侧文档页、设置页。
 
 每一期都以"装进宿主、在这种真实页面里用一遍"为验收，不做预览页。
 
 ## 九、风险与未验证项
 
-1. **面板↔Host 的桥**（最高风险）：`host.call` 是否对 bundle 可用未验证。首日先做一个 20 行的最小插件（一个路由、一个按钮、一次调用）确认；不可用则走 `POST /api/learning` 路由，再不可用退到命令 + 剪贴板。
+1. **Client 半的可用面尚未验证**：评审时 Client 侧 inspect 超时（页面未应答），§5 里关于 slot、标准 props、`ctx.remote` 的事实全部来自文档而非实机。装插件前先用最小插件确认：侧栏图标 + 中间整页 + 一次 `commands.execute`。`host.call` 那条路已按文档改为 `ctx.remote.commands.execute`，风险降级。
 2. **PDF 文本抽取质量**：交给 agent，取决于其读取能力；锚定校验会在抽不出文本时降级为页码，此时"防编题"变弱，需要人工核对。
 3. **成本与时延**：一次导入几百道题是长回合。分片（每次 30–60 题）、可中断、可续传；`commit` 失败不丢草稿。
 4. **聊天噪音**：所有 AI 动作只通过命令触发，不由面板自动发起；抽查默认本地自评，AI 批改是显式动作。
@@ -336,6 +352,7 @@ auditSubmit(findings) -> 写 reports/audit-*.json 并回写题目 flags
 5. 体检页显示零题知识点与重复题，并给出下一步建议。
 6. `learning/` 下每个文件都能被人读懂、能 diff；手工改坏一处后 `commit`/`update` 报错而非静默接受。
 7. 宿主重启后数据仍在，面板能读回。
+8. 同一份材料再次导入 → 命中已有题时是**更新**（`merged`），不是堆一批 `duplicate_of`；历史作答仍挂在原来的题上。
 
 ## 十一、留给 builder 的决定
 
@@ -344,4 +361,16 @@ auditSubmit(findings) -> 写 reports/audit-*.json 并回写题目 flags
 - 轮询间隔、缓存与失效策略。
 - 命令参数的具体语法与转义。
 - 图标与详情页文案。
-- 是否把 `progress.json` 做成纯派生缓存（v1 建议先落盘，简单）。
+
+## 十二、评审后定下的取舍
+
+独立评审提了八个"会猜错就麻烦"的点，逐条定案（都已并入上文）：
+
+1. **一库一目标**：学习库绑会话工作目录，`<cwd>/learning/`；不再有"多目标、一个激活"的说法。学第二门＝换目录。
+2. **AI 的回答在哪看**：面板保持整页，发完命令出「去看」提示，点了才切对话；不内嵌对话。
+3. **锚定校验需要抽取文本**：agent 导入时额外写 `materials/<slug>.txt`，插件拿它逐字核对；没有就整批进待核对，人工抽查后可批量接受。
+4. **基准目录与会话**：一律 `ctx.workingDirectory.get(session)`；面板请求带会话 id，工具从 agent 会话取，两边同源。
+5. **重复导入是对账**：按"文件 + 归一化题干"匹配，命中覆盖内容、保留 id 与作答历史；材料里消失的题标 `orphaned`，不删。
+6. **术语由导入时一并产出**：`inbox/terms.jsonl` 与题目同批校验入库，保证点术语零延迟。
+7. **AI 补答案排到 v2**：v1 只标 `missing_answer` 并允许手改；v2 才加 `ai-drafted` 的生成与接受流程。
+8. **页码定位降到 v1 之外**：v1 只显示页码与来源文件，v3 再对接右侧文档页的定位。
