@@ -35,7 +35,7 @@
 
 ### 非目标（v1 明确不做）
 - 不做间隔重复算法（SRS 调度）；复习顺序只用简单启发式。
-- 不做多目标并行管理界面（可以有多个目标的数据，但界面只显示激活的那个）。
+- 不做多目标切换（一个目录一个学习库；要学第二门就换目录）。
 - 不做图片抽取、不做 PDF 版面还原。
 - 插件自身不解析 PDF/MD/TXT——解析是 agent 的活。
 - 不做移动端布局，不做多语言以外的主题定制。
@@ -58,7 +58,7 @@
 - 右侧文档页（`rightbar` / `sidebar.right.pane.tab` / `sidebar.right.tab.document`）已存在，PDF 在右侧可预览，所以"点页码 → 看原文"有现成落点。
 - Host 侧可用：`ctx.tools.register`（agent 工具）、`ctx.fs`（工作区文件读写）、`ctx.webServer.register`（HTTP 路由）、`ctx.commands.register`（人类命令）、`ctx.systemPrompt.section`（提示词段落）、`ctx.storage`（结构化存储，v1 不用）。
 - 客户端可用服务：`ctx.slots`、`ctx.locale`、`ctx.theme`、`ctx.layout`（`selectPanel`）、`ctx.sessions`、`ctx.workspaces`、`ctx.uiWorkspace`、`ctx.timer`。
-- **未验证的关键点**：客户端半怎么调 Host 半。Builtin 里的 `host.call` 标称"Package-private JSON RPC"，但它按动态 Package 描述；bundle 是否有同样的桥，需要在动手第一天用二十行代码验证（见"风险"）。
+- **面板调 Host 的两条通道**：数据读写用插件自己注册的 `POST /api/learning`（`ctx.webServer.register`，同源 fetch）；需要 AI 的动作走 `ctx.remote.commands.execute`（`@Remote` 方法，`references/user-actions.md` 明确认可 UI 经命令驱动 Host）。不采用凭猜测的 `host.call`。Client 侧这些事实来自文档，实机尚未验证（评审时 Client inspect 超时）。
 
 ## 六、方案
 
