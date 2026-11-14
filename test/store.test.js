@@ -52,6 +52,37 @@ test('markSeen 记下已读', async () => {
   })
 })
 
+test('updateQuestion 拒绝坏 patch，库保持原样', async () => {
+  await withStore(async store => {
+    await writeJsonl(store.paths.questions, [{
+      id: 'q_1', key: 'k1', stem: '原题干是什么？', nodeId: 'n_1', status: 'ok', flags: [],
+      reference: { answer: 'a', points: [] }, source: { file: 'm.md', page: 1, anchor: 'a', hasImage: false },
+      tags: [], related: { questions: [], deeper: [], broader: [] }, createdAt: 'T0', updatedAt: 'T0',
+    }])
+    await assert.rejects(() => store.updateQuestion('q_1', { stem: ' ' }), /invalid stem/)
+    await assert.rejects(() => store.updateQuestion('q_1', { reference: null }), /invalid reference/)
+    await assert.rejects(() => store.updateQuestion('q_1', { status: 'bogus' }), /unknown status/)
+    await assert.rejects(() => store.updateQuestion('q_1', { nodeId: 'n_404' }), /unknown node/)
+    const [row] = await readJsonl(store.paths.questions)
+    assert.equal(row.stem, '原题干是什么？')
+    assert.equal(row.status, 'ok')
+    assert.equal(row.reference.answer, 'a')
+  })
+})
+
+test('改题干会重算指纹并记住旧指纹', async () => {
+  await withStore(async store => {
+    await writeJsonl(store.paths.questions, [{
+      id: 'q_1', key: 'k1', stem: '原题干是什么？', nodeId: 'n_1', status: 'ok', flags: [],
+      reference: { answer: 'a', points: [] }, source: { file: 'm.md', page: 1, anchor: 'a', hasImage: false },
+      tags: [], related: { questions: [], deeper: [], broader: [] }, createdAt: 'T0', updatedAt: 'T0',
+    }])
+    const next = await store.updateQuestion('q_1', { stem: '换了一个更好的题干？' })
+    assert.notEqual(next.key, 'k1')
+    assert.deepEqual(next.previousKeys, ['k1'])
+    assert.equal(next.id, 'q_1')
+  })
+})
 test('updateQuestion 保留身份字段，未知 id 抛错', async () => {
   await withStore(async store => {
     await writeJsonl(store.paths.questions, [{
@@ -59,9 +90,9 @@ test('updateQuestion 保留身份字段，未知 id 抛错', async () => {
       reference: { answer: 'a', points: [] }, source: { file: 'm.md', page: 1, anchor: 'a', hasImage: false },
       tags: [], related: { questions: [], deeper: [], broader: [] }, createdAt: 'T0', updatedAt: 'T0',
     }])
-    await store.updateQuestion('q_1', { stem: '新题干是什么？', tags: ['x'] })
+    await store.updateQuestion('q_1', { tags: ['x'] })
     const [row] = await readJsonl(store.paths.questions)
-    assert.equal(row.stem, '新题干是什么？')
+    assert.equal(row.stem, '原题干是什么？')
     assert.deepEqual(row.tags, ['x'])
     assert.equal(row.id, 'q_1')
     assert.equal(row.key, 'k1')

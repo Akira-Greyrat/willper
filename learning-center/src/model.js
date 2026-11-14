@@ -54,6 +54,20 @@ export function questionKey(file, stem) {
 }
 
 /**
+ * Fold full-width ASCII and drop punctuation, symbols and whitespace so that
+ * "什么是闭包？" and "什么是闭包?" collapse to one fingerprint.
+ * @param {string} stem - question stem.
+ * @returns {string} a comparison fingerprint.
+ */
+export function dedupeKey(stem) {
+  return normalizeStem(stem)
+    .replace(/[\uFF01-\uFF5E]/gu, ch => String.fromCharCode(ch.charCodeAt(0) - 0xfee0))
+    .replace(/\u3000/gu, ' ')
+    .toLowerCase()
+    .replace(/[\s\p{P}\p{S}]/gu, '')
+}
+
+/**
  * @param {string} seed - any stable text.
  * @returns {string} question id.
  */
@@ -73,6 +87,75 @@ export function findAnchor(anchor, materialText) {
   const needle = squash(anchor)
   if (needle.length === 0) return false
   return squash(materialText).includes(needle)
+}
+
+/** Statuses a question may carry. */
+export const STATUSES = new Set(['ok', 'needs-review', 'rejected'])
+
+/**
+ * Validate a panel/tool edit and return the row it should produce. Identity
+ * fields (`id`, `key`, `createdAt`) are the caller's to preserve, never the
+ * patch's.
+ * @param {object} current - the stored question.
+ * @param {object} patch - fields to replace.
+ * @param {{ nodeIds: Set<string> }} options - live knowledge-node ids.
+ * @returns {object} the next row (without `updatedAt`).
+ * @throws {Error} when a field would corrupt the bank.
+ */
+export function validatePatch(current, patch, options) {
+  const next = { ...current }
+  for (const [field, value] of Object.entries(patch ?? {})) {
+    switch (field) {
+      case 'stem': {
+        const stem = normalizeStem(value)
+        if (stem.length < MIN_STEM) throw new Error('invalid stem')
+        next.stem = stem
+        break
+      }
+      case 'nodeId': {
+        if (typeof value !== 'string' || !options.nodeIds.has(value)) throw new Error(`unknown node: ${String(value)}`)
+        next.nodeId = value
+        break
+      }
+      case 'reference': {
+        if (!value || typeof value !== 'object') throw new Error('invalid reference')
+        const answer = typeof value.answer === 'string' ? value.answer : ''
+        const points = Array.isArray(value.points) ? value.points : []
+        if (answer.trim().length === 0 && points.length === 0) throw new Error('invalid reference')
+        next.reference = { ...current.reference, ...value }
+        break
+      }
+      case 'source': {
+        if (!value || typeof value !== 'object') throw new Error('invalid source')
+        next.source = { ...current.source, ...value }
+        break
+      }
+      case 'tags': {
+        if (!Array.isArray(value) || value.some(tag => typeof tag !== 'string')) throw new Error('invalid tags')
+        next.tags = [...new Set(value.map(tag => tag.trim()).filter(Boolean))]
+        break
+      }
+      case 'flags': {
+        if (!Array.isArray(value) || value.some(flag => typeof flag !== 'string')) throw new Error('invalid flags')
+        next.flags = [...value]
+        break
+      }
+      case 'related': {
+        if (!value || typeof value !== 'object') throw new Error('invalid related')
+        next.related = { ...current.related, ...value }
+        break
+      }
+      case 'status': {
+        if (!STATUSES.has(value)) throw new Error(`unknown status: ${String(value)}`)
+        next.status = value
+        if (value === 'ok') next.flags = []
+        break
+      }
+      default:
+        throw new Error(`unknown field: ${field}`)
+    }
+  }
+  return next
 }
 
 /**

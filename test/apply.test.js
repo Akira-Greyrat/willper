@@ -11,7 +11,7 @@ import { withTempStore } from './helpers.js'
  * @returns {{ ctx: object, record: object, agent: object }} fake context, registrations, and the session agent.
  */
 function fakeCtx({ withWorkingDirectory = true, withAgents = true, baseDir = process.cwd() } = {}) {
-  const record = { tools: [], commands: [], routes: [] }
+  const record = { tools: [], commands: [], routes: [], effects: [] }
   const agent = { session: { id: 's_1' }, followup() {} }
   const services = {}
   if (withWorkingDirectory) {
@@ -25,6 +25,11 @@ function fakeCtx({ withWorkingDirectory = true, withAgents = true, baseDir = pro
   }
   const ctx = {
     get: name => services[name],
+    effect(callback, label) {
+      const dispose = callback()
+      record.effects.push({ label, dispose })
+      return () => {}
+    },
     tools: { register: def => { record.tools.push(def); return () => {} } },
     commands: { register: def => { record.commands.push(def); return () => {} } },
     webServer: { register: route => { record.routes.push(route); return () => {} } },
@@ -40,6 +45,7 @@ function fakeCtx({ withWorkingDirectory = true, withAgents = true, baseDir = pro
 async function post(handler, body) {
   const req = new EventEmitter()
   req.method = 'POST'
+  req.headers = { 'content-type': 'application/json', host: '127.0.0.1:9862' }
   setImmediate(() => {
     req.emit('data', Buffer.from(JSON.stringify(body)))
     req.emit('end')
@@ -65,6 +71,17 @@ test('apply 注册四个工具、一个命令、一个路由', () => {
   assert.equal(record.routes[0].path, '/api/learning')
   assert.equal(record.routes[0].kind, 'exact')
   assert.equal(typeof record.routes[0].handler, 'function')
+})
+
+test('每个注册都挂在 ctx.effect 上，卸载时能释放', () => {
+  const { ctx, record } = fakeCtx()
+  apply(ctx, {})
+  // 四个工具 + 一个命令 + 一个路由，各自一个 effect
+  assert.equal(record.effects.length, 6)
+  for (const effect of record.effects) {
+    assert.equal(typeof effect.label, 'string')
+    assert.equal(typeof effect.dispose, 'function')
+  }
 })
 
 test('apply 返回清理函数', () => {

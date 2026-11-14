@@ -10,14 +10,11 @@ import { basename, extname, join } from 'node:path'
 import { readConfig } from './config.js'
 import { commitInbox } from './ingest.js'
 import { readJson, readJsonl, writeJson, writeJsonl } from './io.js'
-import { normalizePath, validateDraft } from './model.js'
+import { normalizePath, questionKey, validateDraft, validatePatch } from './model.js'
 import { resolveStore } from './paths.js'
 
 /** Statuses the panel may set. */
 const STATUSES = new Set(['ok', 'needs-review', 'rejected'])
-
-/** Fields a panel edit may change. */
-const PATCHABLE = new Set(['stem', 'nodeId', 'reference', 'source', 'tags', 'related', 'status', 'flags'])
 
 /**
  * @param {ReturnType<typeof readConfig>} config - resolved config.
@@ -107,7 +104,9 @@ export function createStore(baseDir, rawConfig) {
   }
 
   /**
-   * Rewrite one question, keeping its identity.
+   * Rewrite one question through the same validation the importer uses, keeping
+   * its identity. Editing the stem recomputes the fingerprint and remembers the
+   * old one, so a later re-import still recognises the question.
    * @param {string} id - question id.
    * @param {object} patch - fields to replace.
    * @returns {Promise<object>} the stored question.
@@ -117,13 +116,14 @@ export function createStore(baseDir, rawConfig) {
     const index = questions.findIndex(q => q.id === id)
     if (index === -1) throw new Error(`unknown question: ${id}`)
     const current = questions[index]
-    const next = { ...current }
-    for (const [field, value] of Object.entries(patch ?? {})) {
-      if (!PATCHABLE.has(field)) continue
-      next[field] = value
+    const next = validatePatch(current, patch ?? {}, { nodeIds: await nodeIds() })
+    if (next.stem !== current.stem) {
+      const newKey = questionKey(current.source && current.source.file ? current.source.file : '', next.stem)
+      const history = [...(current.previousKeys ?? []), current.key]
+      next.key = newKey
+      next.previousKeys = [...new Set(history)].filter(key => key !== newKey)
     }
     next.id = current.id
-    next.key = current.key
     next.createdAt = current.createdAt
     next.updatedAt = new Date().toISOString()
     questions[index] = next
@@ -230,6 +230,10 @@ export function createStore(baseDir, rawConfig) {
     if (!verdict.ok) throw new Error(`question rejected: ${verdict.flags.join(',')}`)
     const rows = await readJsonl(paths.questions)
     if (rows.some(q => q.key === verdict.q.key)) throw new Error('duplicate question: already in bank')
+    // Questions the model writes are AI drafts by definition: they wait for a
+    // human to accept them, and statistics count them separately.
+    verdict.q.status = 'needs-review'
+    verdict.q.reference.provenance = 'ai-drafted'
     rows.push(verdict.q)
     await writeJsonl(paths.questions, rows)
     return verdict.q

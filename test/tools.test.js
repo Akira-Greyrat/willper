@@ -135,7 +135,7 @@ test('question accept / reject / update', async () => {
   })
 })
 
-test('question add 校验后追加，不合格时回传 flags', async () => {
+test('question add 校验后追加，AI 加的题进待核对', async () => {
   await wire(async ({ tools, store }) => {
     const { meta } = await store.load()
     meta.tree = [{ id: 'n_1', title: '基础', order: 10 }]
@@ -144,8 +144,8 @@ test('question add 校验后追加，不合格时回传 flags', async () => {
       action: 'add',
       question: { stem: '什么是闭包？', reference: { answer: '组合', points: [] }, nodeId: 'n_1' },
     })
-    assert.equal(good.question.status, 'ok')
-    assert.equal(good.question.reference.provenance, 'user')
+    assert.equal(good.question.status, 'needs-review')
+    assert.equal(good.question.reference.provenance, 'ai-drafted')
     assert.equal((await readJsonl(store.paths.questions)).length, 1)
     await assert.rejects(
       () => call(tools.learning_question, { action: 'add', question: { stem: '什么是闭包？', nodeId: 'n_1' } }),

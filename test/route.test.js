@@ -1,7 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { EventEmitter } from 'node:events'
-import { readJson, writeJsonl, ensureDir } from '../learning-center/src/io.js'
+import { readJson, readJsonl, writeJsonl, ensureDir } from '../learning-center/src/io.js'
 import { createStore } from '../learning-center/src/store.js'
 import { handleApi } from '../learning-center/src/route.js'
 import { withTempStore } from './helpers.js'
@@ -14,6 +14,7 @@ import { withTempStore } from './helpers.js'
 function fakeRequest(body) {
   const req = new EventEmitter()
   req.method = 'POST'
+  req.headers = { 'content-type': 'application/json', host: '127.0.0.1:9862' }
   setImmediate(() => {
     req.emit('data', Buffer.from(JSON.stringify(body)))
     req.emit('end')
@@ -81,6 +82,7 @@ test('坏 JSON 返回 400', async () => {
   await withApi(async ({ handler }) => {
     const req = new EventEmitter()
     req.method = 'POST'
+    req.headers = { 'content-type': 'application/json', host: '127.0.0.1:9862' }
     setImmediate(() => {
       req.emit('data', Buffer.from('{not json'))
       req.emit('end')
@@ -160,6 +162,7 @@ test('请求体超过上限返回 413', async () => {
     const handler = handleApi({ storeFor: async () => store, promptAgent: async () => true, maxBytes: 64 })
     const req = new EventEmitter()
     req.method = 'POST'
+    req.headers = { 'content-type': 'application/json', host: '127.0.0.1:9862' }
     setImmediate(() => {
       req.emit('data', Buffer.from(JSON.stringify({ op: 'meta', pad: 'x'.repeat(200) })))
       req.emit('end')
@@ -194,16 +197,58 @@ test('sessions op 不需要 sessionId', async () => {
   })
 })
 
-test('updateQuestion 走同一实现，改坏必填字段时 400 且库不变', async () => {
+test('store 解析失败时返回真实原因而不是 bad json', async () => {
+  const handler = handleApi({
+    storeFor: async () => {
+      throw new Error('当前会话没有工作目录')
+    },
+    promptAgent: async () => true,
+  })
+  const r = await callApi(handler, { op: 'tree', sessionId: 's1' })
+  assert.equal(r.status, 400)
+  assert.match(r.body.error, /工作目录/)
+  assert.doesNotMatch(r.body.error, /bad json/)
+})
+
+test('跨源 Origin 的写请求被拒绝，同源放行', async () => {
+  await withApi(async ({ handler }) => {
+    const evil = fakeRequest({ op: 'tree', sessionId: 's1' })
+    evil.headers = { origin: 'http://evil.example', host: '127.0.0.1:9862', 'content-type': 'application/json' }
+    const evilRes = fakeResponse()
+    await handler(evil, evilRes)
+    assert.equal(evilRes.statusCode, 403)
+
+    const same = fakeRequest({ op: 'tree', sessionId: 's1' })
+    same.headers = { origin: 'http://127.0.0.1:9862', host: '127.0.0.1:9862', 'content-type': 'application/json' }
+    const sameRes = fakeResponse()
+    await handler(same, sameRes)
+    assert.equal(sameRes.statusCode, 200)
+  })
+})
+
+test('非 JSON content-type 被拒绝', async () => {
+  await withApi(async ({ handler }) => {
+    const req = fakeRequest({ op: 'tree', sessionId: 's1' })
+    req.headers = { 'content-type': 'text/plain' }
+    const res = fakeResponse()
+    await handler(req, res)
+    assert.equal(res.statusCode, 415)
+  })
+})
+
+test('updateQuestion 改坏必填字段时 400 且库不变', async () => {
   await withApi(async ({ handler, store }) => {
     await ensureDir(store.paths.root)
     await writeJsonl(store.paths.questions, [
       { id: 'q1', key: 'k1', stem: '原题？', nodeId: 'n_1', status: 'ok', flags: [], source: { file: 'm.md' }, reference: { answer: 'a' }, tags: [], related: {}, createdAt: 'T0', updatedAt: 'T0' },
     ])
-    const ok = await callApi(handler, { op: 'updateQuestion', sessionId: 's1', params: { id: 'q1', patch: { stem: '新题？' } } })
+    const ok = await callApi(handler, { op: 'updateQuestion', sessionId: 's1', params: { id: 'q1', patch: { tags: ['x'] } } })
     assert.equal(ok.status, 200)
-    assert.equal(ok.body.question.stem, '新题？')
-    const bad = await callApi(handler, { op: 'updateQuestion', sessionId: 's1', params: { id: 'missing', patch: { stem: 'x' } } })
+    assert.deepEqual(ok.body.question.tags, ['x'])
+    const bad = await callApi(handler, { op: 'updateQuestion', sessionId: 's1', params: { id: 'q1', patch: { stem: '  ' } } })
     assert.equal(bad.status, 400)
+    assert.match(bad.body.error, /invalid stem/)
+    const [row] = await readJsonl(store.paths.questions)
+    assert.equal(row.stem, '原题？')
   })
 })

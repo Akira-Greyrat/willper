@@ -11,7 +11,7 @@ import { readConfig } from './src/config.js'
 import { handleApi } from './src/route.js'
 import { createPromptAgent } from './src/session.js'
 import { createStore } from './src/store.js'
-import { registerTools } from './src/tools.js'
+import { toolDefinitions } from './src/tools.js'
 
 export const name = 'learning-center'
 
@@ -54,27 +54,38 @@ export function apply(ctx, config) {
 
   const prompt = createPromptAgent(ctx)
 
-  for (const dispose of registerTools(ctx, storeFor)) disposers.push(dispose)
-  disposers.push(registerCommand(ctx, {
-    promptAgent: (agent, text) => prompt(agent && agent.session ? agent.session.id : undefined, text),
-  }))
-  disposers.push(ctx.webServer.register({
-    kind: 'exact',
-    path: '/api/learning',
-    handler: handleApi({
-      storeFor,
-      promptAgent: (sessionId, text) => prompt(sessionId, text),
-      listSessions: async () => {
-        const agents = ctx.get('agents')
-        const list = agents && typeof agents.list === 'function' ? agents.list() : []
-        return list.map(agent => ({
-          id: agent.session.id,
-          title: (agent.session.header && agent.session.header.title) || agent.session.id,
-        }))
-      },
-      maxBytes: resolved.maxDraftBytes,
+  for (const definition of toolDefinitions(storeFor)) {
+    disposers.push(ctx.effect(
+      () => ctx.tools.register(definition),
+      `learning-center/tool/${definition.name}`,
+    ))
+  }
+  disposers.push(ctx.effect(
+    () => registerCommand(ctx, {
+      promptAgent: (agent, text) => prompt(agent && agent.session ? agent.session.id : undefined, text),
     }),
-  }))
+    'learning-center/command',
+  ))
+  disposers.push(ctx.effect(
+    () => ctx.webServer.register({
+      kind: 'exact',
+      path: '/api/learning',
+      handler: handleApi({
+        storeFor,
+        promptAgent: (sessionId, text) => prompt(sessionId, text),
+        listSessions: async () => {
+          const agents = ctx.get('agents')
+          const list = agents && typeof agents.list === 'function' ? agents.list() : []
+          return list.map(agent => ({
+            id: agent.session.id,
+            title: (agent.session.header && agent.session.header.title) || agent.session.id,
+          }))
+        },
+        maxBytes: resolved.maxDraftBytes,
+      }),
+    }),
+    'learning-center/route',
+  ))
 
   return () => {
     for (const dispose of disposers) {

@@ -208,13 +208,3 @@ export function toolDefinitions(storeFor) {
 
   return [status, plan, importTool, question]
 }
-
-/**
- * Register the tools on the host context.
- * @param {object} ctx - registrant context with `tools`.
- * @param {(agent: object) => object|Promise<object>} storeFor - store resolver.
- * @returns {(() => void)[]} disposers.
- */
-export function registerTools(ctx, storeFor) {
-  return toolDefinitions(storeFor).map(definition => ctx.tools.register(definition))
-}

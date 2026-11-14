@@ -55,23 +55,55 @@ export function handleApi({ storeFor, promptAgent, listSessions, maxBytes }) {
       send(res, 405, { error: 'method not allowed' })
       return
     }
-    let store
+    // A page the user visits must not be able to POST here: browsers send both
+    // headers on cross-site requests, and a same-origin fetch always sends the
+    // JSON content type.
+    const headers = req.headers ?? {}
+    const contentType = String(headers['content-type'] ?? '').split(';')[0].trim().toLowerCase()
+    if (contentType !== 'application/json') {
+      send(res, 415, { error: 'unsupported content type' })
+      return
+    }
+    const origin = headers.origin
+    if (typeof origin === 'string' && origin.length > 0) {
+      let originHost = ''
+      try {
+        originHost = new URL(origin).host
+      } catch {
+        originHost = ''
+      }
+      if (originHost !== headers.host) {
+        send(res, 403, { error: 'cross-origin request refused' })
+        return
+      }
+    }
+
     let body
     try {
       const raw = await readBody(req, limit)
       body = JSON.parse(raw)
       if (!body || typeof body !== 'object') throw new Error('bad json')
-      if (body.op !== 'sessions' && (typeof body.sessionId !== 'string' || body.sessionId.length === 0)) {
-        send(res, 400, { error: 'missing session' })
-        return
-      }
-      store = body.op === 'sessions' ? undefined : await storeFor(body.sessionId)
     } catch (error) {
       if (error && error.code === 'TOO_LARGE') {
         send(res, 413, { error: 'body too large' })
         return
       }
       send(res, 400, { error: 'bad json' })
+      return
+    }
+
+    if (body.op !== 'sessions' && (typeof body.sessionId !== 'string' || body.sessionId.length === 0)) {
+      send(res, 400, { error: 'missing session' })
+      return
+    }
+
+    let store
+    try {
+      store = body.op === 'sessions' ? undefined : await storeFor(body.sessionId)
+    } catch (error) {
+      // Resolving the library can fail for a real reason (no working directory,
+      // unreadable data); say so instead of blaming the JSON body.
+      send(res, 400, { error: error && error.message ? error.message : String(error) })
       return
     }
 

@@ -51,13 +51,44 @@ test('同一份材料再导一次是更新，题号不变', async () => {
   })
 })
 
-test('同一批里重复只收一条并说明原因', async () => {
+test('同一批里逐字重复的一行不重复入库', async () => {
   await withTempStore(async paths => {
     await writeJsonl(paths.inboxQuestions, [draft(), draft()])
     const r = await commitInbox(paths, options())
     assert.equal(r.added, 1)
     assert.equal((await readJsonl(paths.questions)).length, 1)
-    assert.ok(r.reasons.some(x => String(x.reason).startsWith('duplicate_of')))
+  })
+})
+
+test('同一道题来自两个文件也算重复', async () => {
+  await withTempStore(async paths => {
+    await writeJsonl(paths.inboxQuestions, [
+      draft(),
+      draft({ source: { file: 'materials/other.md', page: 1, anchor: '什么是闭包' } }),
+    ])
+    const r = await commitInbox(paths, {
+      nodeIds: new Set(['n_1']),
+      materialTextByFile: {
+        'materials/bank.md': '什么是闭包？函数与其词法环境的组合。',
+        'materials/other.md': '什么是闭包？函数与其词法环境的组合。',
+      },
+    })
+    assert.equal(r.added, 1)
+    assert.equal(r.needsReview, 1)
+    const rows = await readJsonl(paths.questions)
+    assert.ok(rows.some(x => x.flags.some(f => String(f).startsWith('duplicate_of:'))))
+  })
+})
+
+test('标点与全角差异不算新题', async () => {
+  await withTempStore(async paths => {
+    await writeJsonl(paths.inboxQuestions, [
+      draft({ stem: '什么是闭包？' }),
+      draft({ stem: '什么是闭包?', source: { file: 'materials/bank.md', page: 4, anchor: '什么是闭包' } }),
+    ])
+    const r = await commitInbox(paths, options())
+    assert.equal(r.added, 1)
+    assert.equal(r.needsReview, 1)
   })
 })
 
@@ -85,21 +116,54 @@ test('坏 JSON 行只丢那一行，其余照常入库', async () => {
   })
 })
 
-test('材料里消失的题标 orphaned，不删', async () => {
+test('同一材料分批导入，前一批不会被判成孤儿', async () => {
   await withTempStore(async paths => {
-    const a = draft()
-    const b = draft({ stem: '什么是作用域？', source: { file: 'materials/bank.md', page: 4, anchor: '什么是作用域' } })
-    await writeJsonl(paths.inboxQuestions, [a, b])
+    await writeJsonl(paths.inboxQuestions, [draft()])
     await commitInbox(paths, options())
 
-    await writeJsonl(paths.inboxQuestions, [draft()])
+    await writeJsonl(paths.inboxQuestions, [
+      draft({ stem: '什么是作用域？', source: { file: 'materials/bank.md', page: 4, anchor: '什么是作用域' } }),
+    ])
     const r = await commitInbox(paths, options())
+    assert.equal(r.added, 1)
+    assert.equal(r.orphaned, 0)
+    const rows = await readJsonl(paths.questions)
+    assert.equal(rows.length, 2)
+    assert.ok(rows.every(x => x.status === 'ok'))
+  })
+})
+
+test('材料里再也找不到的题才标 orphaned，不删', async () => {
+  await withTempStore(async paths => {
+    await writeJsonl(paths.inboxQuestions, [
+      draft(),
+      draft({ stem: '什么是作用域？', source: { file: 'materials/bank.md', page: 4, anchor: '什么是作用域' } }),
+    ])
+    await commitInbox(paths, options())
+
+    // 材料被换成只含第一题的另一版
+    await writeJsonl(paths.inboxQuestions, [draft()])
+    const r = await commitInbox(paths, {
+      nodeIds: new Set(['n_1']),
+      materialTextByFile: { 'materials/bank.md': '什么是闭包？函数与其词法环境的组合。' },
+    })
     assert.equal(r.orphaned, 1)
     const rows = await readJsonl(paths.questions)
     assert.equal(rows.length, 2)
     const gone = rows.find(x => x.flags.includes('orphaned'))
     assert.ok(gone)
     assert.equal(gone.status, 'needs-review')
+  })
+})
+
+test('没有材料文本时不做孤儿判断', async () => {
+  await withTempStore(async paths => {
+    await writeJsonl(paths.inboxQuestions, [draft()])
+    await commitInbox(paths, options())
+    await writeJsonl(paths.inboxQuestions, [draft({ stem: '另一个新问题呢？', source: { file: 'materials/other.md', page: 1, anchor: '另一个新问题呢' } })])
+    const r = await commitInbox(paths, options())
+    assert.equal(r.orphaned, 0)
+    assert.ok((await readJsonl(paths.questions)).every(x => !x.flags.includes('orphaned')))
   })
 })
 

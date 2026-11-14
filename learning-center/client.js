@@ -40,6 +40,9 @@ window.__ModuleLoader__.load({
       source: '来源',
       page: '第 %s 页',
       noQuestions: '这个知识点还没有可练的题。',
+      allSeen: '这个知识点的题都读过了。',
+      revisit: '复习已读',
+      prev: '上一题',
       needsReview: '待核对',
       accept: '接受',
       reject: '驳回',
@@ -80,6 +83,9 @@ window.__ModuleLoader__.load({
       source: 'Source',
       page: 'page %s',
       noQuestions: 'No practiceable question under this topic yet.',
+      allSeen: 'You have read every question under this topic.',
+      revisit: 'Review read questions',
+      prev: 'Previous',
       needsReview: 'Needs review',
       accept: 'Accept',
       reject: 'Reject',
@@ -198,17 +204,55 @@ window.__ModuleLoader__.load({
      * @returns {object} React node.
      */
     function ReviewList({ items, onStatus, onEdit, t }) {
+      const [editing, setEditing] = useState(null)
+      const [draft, setDraft] = useState('')
       if (items.length === 0) return h('p', { className: 'lc-node-sub' }, t('emptyBank'))
       return h('div', null, items.map(item => h('div', { className: 'lc-row', key: item.id },
-        h('div', { style: { minWidth: 0 } },
-          h('div', { className: 'lc-stem', style: { margin: 0 } }, item.stem),
+        h('div', { style: { minWidth: 0, flex: '1 1 auto' } },
+          editing === item.id
+            ? h('textarea', {
+              className: 'lc-input',
+              rows: 3,
+              value: draft,
+              onChange: event => setDraft(event.target.value),
+            })
+            : h('div', { className: 'lc-stem', style: { margin: 0 } }, item.stem),
           h('div', { className: 'lc-flags' }, item.flags.join(' · ')),
           h('div', { className: 'lc-flag-list' },
             item.source && item.source.file ? `${item.source.file}${item.source.page ? ` · ${t('page').replace('%s', item.source.page)}` : ''}` : '')),
         h('div', { className: 'lc-actions' },
-          h('button', { type: 'button', className: 'lc-btn', onClick: () => onStatus(item.id, 'ok') }, t('accept')),
-          h('button', { type: 'button', className: 'lc-btn', onClick: () => onEdit(item) }, t('edit')),
-          h('button', { type: 'button', className: 'lc-btn', onClick: () => onStatus(item.id, 'rejected') }, t('reject'))))))
+          editing === item.id
+            ? [
+              h('button', {
+                key: 'save',
+                type: 'button',
+                className: 'lc-btn lc-btn-primary',
+                onClick: () => {
+                  const next = draft.trim()
+                  setEditing(null)
+                  if (next.length > 0 && next !== item.stem) onEdit(item, next)
+                },
+              }, t('accept')),
+              h('button', {
+                key: 'cancel',
+                type: 'button',
+                className: 'lc-btn',
+                onClick: () => setEditing(null),
+              }, t('reject')),
+            ]
+            : [
+              h('button', { key: 'accept', type: 'button', className: 'lc-btn', onClick: () => onStatus(item.id, 'ok') }, t('accept')),
+              h('button', {
+                key: 'edit',
+                type: 'button',
+                className: 'lc-btn',
+                onClick: () => {
+                  setDraft(item.stem)
+                  setEditing(item.id)
+                },
+              }, t('edit')),
+              h('button', { key: 'reject', type: 'button', className: 'lc-btn', onClick: () => onStatus(item.id, 'rejected') }, t('reject')),
+            ]))))
     }
 
     /**
@@ -217,13 +261,15 @@ window.__ModuleLoader__.load({
      * @param {object} props - component props.
      * @returns {object} React node.
      */
-    function QuestionCard({ card, terms, t, total, answerOpen, openTerm, onToggleAnswer, onPickTerm, onNext, onFavorite }) {
+    function QuestionCard({ card, terms, t, total, answerOpen, openTerm, onToggleAnswer, onPickTerm, onNext, onPrev, canPrev, onFavorite, onRevisit, revisit }) {
       return h('div', { className: 'lc-card' },
         h(StemView, { stem: card.stem, termHits: card.termHits, terms, onPick: onPickTerm, activeTerm: openTerm }),
         h('div', { className: 'lc-actions' },
           h('button', { type: 'button', className: 'lc-btn', onClick: onToggleAnswer }, answerOpen ? t('hide') : t('reveal')),
           h('button', { type: 'button', className: 'lc-btn', onClick: onFavorite }, card.favorite ? '★' : '☆'),
-          h('button', { type: 'button', className: 'lc-btn lc-btn-primary', onClick: onNext }, t('next'))),
+          h('button', { type: 'button', className: 'lc-btn', onClick: onPrev, disabled: !canPrev }, t('prev')),
+          h('button', { type: 'button', className: 'lc-btn lc-btn-primary', onClick: onNext }, t('next')),
+          h('button', { type: 'button', className: 'lc-btn', 'data-active': String(revisit), onClick: onRevisit }, t('revisit'))),
         answerOpen && card.reference
           ? h('div', { className: 'lc-answer' },
             card.reference.answer || '',
@@ -259,6 +305,9 @@ window.__ModuleLoader__.load({
       const [toast, setToast] = useState(null)
       const [error, setError] = useState(null)
       const [busy, setBusy] = useState(false)
+      const [sessionsList, setSessionsList] = useState([])
+      const [history, setHistory] = useState([])
+      const [revisit, setRevisit] = useState(false)
 
       const fail = useCallback(err => setError((err && err.message) || String(err)), [])
 
@@ -287,8 +336,8 @@ window.__ModuleLoader__.load({
       }, [])
 
       /** Load one page of the practice queue. */
-      const loadQueue = useCallback(async (id, node) => {
-        const page = await request('queue', { nodeId: node ?? undefined, offset: 0, limit: 50 }, id)
+      const loadQueue = useCallback(async (id, node, revisitMode) => {
+        const page = await request('queue', { nodeId: node ?? undefined, offset: 0, limit: 50, revisit: revisitMode === true }, id)
         setQueue(page)
         if (page.items.length === 0) {
           setCard(null)
@@ -306,11 +355,13 @@ window.__ModuleLoader__.load({
           try {
             const sessions = await request('sessions')
             if (!alive) return
-            const first = sessions.sessions && sessions.sessions[0]
+            const list = sessions.sessions ?? []
+            setSessionsList(list)
+            const first = list[0]
             setSessionId(first ? first.id : null)
             if (!first) return
             await loadBasics(first.id)
-            await loadQueue(first.id, null)
+            await loadQueue(first.id, null, false)
           } catch (err) {
             if (alive) fail(err)
           }
@@ -325,7 +376,7 @@ window.__ModuleLoader__.load({
           await loadBasics(sessionId)
           if (tab === 'bank') setChecklist(await request('checklist', {}, sessionId))
           if (tab === 'favorite') setFavorites(await request('favorites', {}, sessionId))
-          if (tab === 'study') await loadQueue(sessionId, nodeId)
+          if (tab === 'study') await loadQueue(sessionId, nodeId, revisit)
           setError(null)
         } catch (err) {
           fail(err)
@@ -351,25 +402,52 @@ window.__ModuleLoader__.load({
         if (!sessionId || !card) return
         try {
           await request('seen', { id: card.id }, sessionId)
-          await loadQueue(sessionId, nodeId)
+          setHistory([...history, card.id])
+          await loadQueue(sessionId, nodeId, revisit)
         } catch (err) {
           fail(err)
         }
-      }, [sessionId, card, nodeId, loadQueue, fail])
+      }, [sessionId, card, nodeId, revisit, history, loadQueue, fail])
+
+      const prevQuestion = useCallback(async () => {
+        if (!sessionId || history.length === 0) return
+        const id = history[history.length - 1]
+        setHistory(history.slice(0, -1))
+        try {
+          const detail = await request('question', { id }, sessionId)
+          setCard(detail.question)
+          setAnswerOpen(false)
+          setOpenTerm(null)
+        } catch (err) {
+          fail(err)
+        }
+      }, [sessionId, history, fail])
+
+      const toggleRevisit = useCallback(async () => {
+        const next = !revisit
+        setRevisit(next)
+        if (!sessionId) return
+        try {
+          await loadQueue(sessionId, nodeId, next)
+        } catch (err) {
+          fail(err)
+        }
+      }, [revisit, sessionId, nodeId, loadQueue, fail])
 
       const pickNode = useCallback(async id => {
         setNodeId(id)
+        setHistory([])
         if (!sessionId) return
         setBusy(true)
         try {
-          await loadQueue(sessionId, id)
+          await loadQueue(sessionId, id, revisit)
           setError(null)
         } catch (err) {
           fail(err)
         } finally {
           setBusy(false)
         }
-      }, [sessionId, loadQueue, fail])
+      }, [sessionId, revisit, loadQueue, fail])
 
       const toggleFavorite = useCallback(async () => {
         if (!sessionId || !card) return
@@ -403,16 +481,15 @@ window.__ModuleLoader__.load({
         }
       }, [sessionId, fail])
 
-      const editQuestion = useCallback(async item => {
-        const stem = window.prompt(t('editPrompt'), item.stem)
-        if (stem === null || stem.trim().length === 0) return
+      const editQuestion = useCallback(async (item, stem) => {
         try {
           await request('updateQuestion', { id: item.id, patch: { stem } }, sessionId)
           setChecklist(await request('checklist', {}, sessionId))
+          setError(null)
         } catch (err) {
           fail(err)
         }
-      }, [sessionId, t, fail])
+      }, [sessionId, fail])
 
       if (!sessionId) {
         return h('div', { className: 'lc-root' },
@@ -432,7 +509,26 @@ window.__ModuleLoader__.load({
           className: 'lc-tab',
           'data-active': String(tab === name),
           onClick: () => switchTab(name),
-        }, t(name)))))
+        }, t(name)))),
+        sessionsList.length > 1
+          ? h('select', {
+            className: 'lc-input',
+            style: { width: 240, marginLeft: 'auto' },
+            value: sessionId,
+            onChange: async event => {
+              const nextId = event.target.value
+              setSessionId(nextId)
+              setHistory([])
+              try {
+                await loadBasics(nextId)
+                await loadQueue(nextId, null, false)
+                setError(null)
+              } catch (err) {
+                fail(err)
+              }
+            },
+          }, sessionsList.map(session => h('option', { key: session.id, value: session.id }, session.title)))
+          : null)
 
       const toastRow = toast
         ? h('div', { className: 'lc-toast' },
@@ -469,12 +565,20 @@ window.__ModuleLoader__.load({
             total: queue.total,
             answerOpen,
             openTerm,
+            revisit,
+            canPrev: history.length > 0,
             onToggleAnswer: () => setAnswerOpen(!answerOpen),
             onPickTerm: setOpenTerm,
             onNext: nextQuestion,
+            onPrev: prevQuestion,
+            onRevisit: toggleRevisit,
             onFavorite: toggleFavorite,
           })
-          : h('p', { className: 'lc-node-sub' }, t('noQuestions')))
+          : h('div', null,
+            h('p', { className: 'lc-node-sub' }, revisit ? t('noQuestions') : t('allSeen')),
+            revisit
+              ? null
+              : h('button', { type: 'button', className: 'lc-btn', onClick: toggleRevisit }, t('revisit'))))
         : null
 
       const bankPane = hasTarget && hasTree && tab === 'bank'
