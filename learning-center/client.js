@@ -10,7 +10,7 @@ window.__ModuleLoader__.load({
   factory(require) {
     const React = require('react')
     const h = React.createElement
-    const { useCallback, useEffect, useState } = React
+    const { useCallback, useEffect, useRef, useState } = React
 
     const API = '/api/learning'
 
@@ -230,6 +230,23 @@ window.__ModuleLoader__.load({
     /** Widest the term popover may get, in pixels. */
     const POPOVER_WIDTH = 320
 
+    /** The term being explained is highlighted in this accent, by request. */
+    const TERM_ACCENT = '#e0218a'
+
+    /**
+     * Whether a pointer-down target lies outside the popover. A click on another
+     * term is not "outside": that term's own handler swaps the card.
+     * @param {*} target - event target.
+     * @param {*} card - the popover element, if mounted.
+     * @returns {boolean} whether the popover should close.
+     */
+    function isOutsidePopover(target, card) {
+      if (!target) return true
+      if (card && typeof card.contains === 'function' && card.contains(target)) return false
+      if (typeof target.closest === 'function' && target.closest('.lc-term')) return false
+      return true
+    }
+
     /**
      * Place the term popover next to its term, inside the viewport: to the right
      * edge it slides left, near the bottom it flips above.
@@ -254,21 +271,31 @@ window.__ModuleLoader__.load({
      * @returns {object} React node.
      */
     function TermPopover({ term, style, onClose, t }) {
+      const holder = useRef(null)
       useEffect(() => {
         const onKey = event => {
           if (event.key === 'Escape') onClose()
         }
         const onScroll = () => onClose()
+        const onPointerDown = event => {
+          if (isOutsidePopover(event.target, holder.current)) onClose()
+        }
         window.addEventListener('keydown', onKey)
         window.addEventListener('scroll', onScroll, true)
+        document.addEventListener('mousedown', onPointerDown, true)
         return () => {
           window.removeEventListener('keydown', onKey)
           window.removeEventListener('scroll', onScroll, true)
+          document.removeEventListener('mousedown', onPointerDown, true)
         }
       }, [onClose])
-      return h('div', { className: 'lc-pop', style },
-        h('strong', null, term && term.text),
-        h('div', null, (term && term.definition) || t('noDefinition')))
+      return h('div', {
+        className: 'lc-pop',
+        style,
+        ref: holder,
+      },
+      h('strong', { style: { color: TERM_ACCENT } }, term && term.text),
+      h('div', null, (term && term.definition) || t('noDefinition')))
     }
 
     /**
@@ -937,7 +964,7 @@ window.__ModuleLoader__.load({
         }, props => h(PanelBoundary, { t }, h(Panel, { ...props, layout, t }))))
       },
       /** Rendered-only internals, exposed so the node harness can exercise them. */
-      __test: { PanelBoundary, popoverStyle, Icon },
+      __test: { PanelBoundary, popoverStyle, Icon, TermPopover, isOutsidePopover, TERM_ACCENT },
     }
   },
 })

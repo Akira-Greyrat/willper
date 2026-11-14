@@ -15,6 +15,7 @@ async function loadClient() {
     useState: initial => [initial, () => {}],
     useEffect: () => {},
     useCallback: fn => fn,
+    useRef: value => ({ current: value }),
     Component: class Component {
       constructor(props) {
         this.props = props
@@ -158,6 +159,30 @@ test('渲染崩溃时显示错误信息而不是白屏', async () => {
   const tree = instance.render()
   assert.equal(tree.type, 'div')
   assert.ok(JSON.stringify(tree).includes('boom'), 'the message must be visible')
+})
+
+test('点浮窗外部才关闭，点术语本身交给术语自己切换', async () => {
+  const { module } = await loadClient()
+  const isOutside = module.__test && module.__test.isOutsidePopover
+  assert.equal(typeof isOutside, 'function')
+  const card = { contains: node => node === 'inside-card' }
+  assert.equal(isOutside('inside-card', card), false)
+  assert.equal(isOutside('far-away', card), true)
+  const termButton = { closest: selector => (selector === '.lc-term' ? {} : null) }
+  assert.equal(isOutside(termButton, card), false, 'clicking another term keeps the popover open for the switch')
+  assert.equal(isOutside(null, card), true)
+})
+
+test('释义卡片里的术语用强调色', async () => {
+  const { module } = await loadClient()
+  const Popover = module.__test && module.__test.TermPopover
+  const accent = module.__test && module.__test.TERM_ACCENT
+  assert.equal(typeof Popover, 'function')
+  assert.match(accent, /^#[0-9a-f]{6}$/i)
+  const tree = Popover({ term: { text: '闭包', definition: '函数与其词法环境' }, style: {}, onClose() {}, t: key => key })
+  const heading = tree.children[0]
+  assert.deepEqual(heading.children, ['闭包'])
+  assert.equal(heading.props.style.color, accent)
 })
 
 test('侧栏图标用宿主同一套栅格与线宽', async () => {
