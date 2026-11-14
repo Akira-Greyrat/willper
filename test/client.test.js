@@ -105,13 +105,25 @@ test('apply 同时注册侧栏图标与主面板', async () => {
   assert.equal(main.options.name, 'main')
 })
 
+/**
+ * Render the registered main slot through its boundary to the Panel tree.
+ * @param {{ component: Function }} main - the registered main slot entry.
+ * @param {object} [props] - slot props.
+ * @returns {object} the Panel element tree.
+ */
+function renderPanel(main, props = {}) {
+  const boundary = main.component(props)
+  const panelElement = boundary.children[0]
+  return panelElement.type(panelElement.props)
+}
+
 test('首次打开渲染空状态而不是白屏', async () => {
   const { module, registrations } = await loadClient()
   module.apply(fakeCtx(registrations, { services: {} }))
   const main = registrations.find(entry => entry.options.key === 'learning')
   const element = main.component({ useSessionStatus: () => undefined })
   assert.ok(element, 'the slot must render something')
-  const tree = element.type(element.props)
+  const tree = renderPanel(main, { useSessionStatus: () => undefined })
   assert.ok(tree, 'the panel must render something without a session')
   assert.equal(tree.type, 'div')
 })
@@ -132,15 +144,27 @@ test('locale 绑定抛错时面板仍然渲染，不会白屏', async () => {
   })
   module.apply(ctx)
   const main = registrations.find(entry => entry.options.key === 'learning')
-  const wrapper = main.component({})
-  const tree = wrapper.type(wrapper.props)
+  const tree = renderPanel(main)
   assert.equal(tree.type, 'div')
 })
 
-test('主面板组件是 Panel，并接受标准 props', async () => {
+test('渲染崩溃时显示错误信息而不是白屏', async () => {
+  const { module } = await loadClient()
+  const Boundary = module.__test && module.__test.PanelBoundary
+  assert.ok(Boundary, 'should expose the boundary for tests')
+  assert.equal(typeof Boundary.getDerivedStateFromError, 'function')
+  const instance = new Boundary({ children: { type: 'div' } })
+  instance.state = Boundary.getDerivedStateFromError(new Error('boom'))
+  const tree = instance.render()
+  assert.equal(tree.type, 'div')
+  assert.ok(JSON.stringify(tree).includes('boom'), 'the message must be visible')
+})
+
+test('主面板组件是 Panel，外面套着错误边界', async () => {
   const { module, registrations } = await loadClient()
   module.apply(fakeCtx(registrations, { services: {} }))
   const main = registrations.find(entry => entry.options.key === 'learning')
-  const wrapper = main.component({})
-  assert.equal(wrapper.type.name, 'Panel')
+  const element = main.component({})
+  assert.equal(element.type.name, 'PanelBoundary')
+  assert.equal(element.children[0].type.name, 'Panel')
 })

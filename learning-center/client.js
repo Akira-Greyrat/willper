@@ -177,6 +177,7 @@ window.__ModuleLoader__.load({
       .lc-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 0; border-bottom: 1px solid var(--dsw-alias-border-l1); }
       .lc-row:last-child { border-bottom: 0; }
       .lc-flags { color: var(--dsw-alias-state-warn-primary); font-size: 12px; }
+      .lc-stack { white-space: pre-wrap; font-size: 12px; color: var(--dsw-alias-label-secondary); }
       .lc-flag-list { color: var(--dsw-alias-label-secondary); font-size: 12px; }
     `
 
@@ -745,6 +746,37 @@ window.__ModuleLoader__.load({
     ].join('\n')
 
     /**
+     * Catches a render crash inside the panel and shows the message. A slot entry
+     * that throws is blanked by the host, which is indistinguishable from "the
+     * plugin never loaded" — this keeps one failure visible and reportable.
+     */
+    class PanelBoundary extends React.Component {
+      constructor(props) {
+        super(props)
+        this.state = { error: null }
+      }
+
+      static getDerivedStateFromError(error) {
+        return { error }
+      }
+
+      componentDidCatch(error) {
+        console.error('[learning-center] panel crashed', error)
+      }
+
+      render() {
+        if (this.state.error) {
+          const message = this.state.error && this.state.error.message ? this.state.error.message : String(this.state.error)
+          return h('div', { className: 'lc-root' },
+            h('div', { className: 'lc-main' },
+              h('p', { className: 'lc-error' }, '学习中心渲染失败'),
+              h('pre', { className: 'lc-stack' }, message)))
+        }
+        return this.props.children
+      }
+    }
+
+    /**
      * First-run form: a target is the one thing the panel cannot invent.
      * @param {{t: Function, busy: boolean, onSave: Function}} props - component props.
      * @returns {object} React node.
@@ -815,8 +847,10 @@ window.__ModuleLoader__.load({
         }, Icon))
         ctx.slots.inject('main', () => ctx.slots.register({
           name: 'main', key: 'learning',
-        }, props => h(Panel, { ...props, layout, t })))
+        }, props => h(PanelBoundary, { t }, h(Panel, { ...props, layout, t }))))
       },
+      /** Rendered-only internals, exposed so the node harness can exercise them. */
+      __test: { PanelBoundary },
     }
   },
 })
