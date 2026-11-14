@@ -47,6 +47,19 @@ export function apply(ctx, config) {
   const disposers = []
 
   /**
+   * Run one registration under the context's effect scope when it has one. A
+   * context without `effect` still gets a working plugin rather than a failed
+   * activation: the registration happens and its disposer is returned.
+   * @param {() => (() => void)} register - performs the registration.
+   * @param {string} label - effect label.
+   * @returns {() => void} disposer.
+   */
+  const effect = (register, label) => {
+    if (typeof ctx.effect === 'function') return ctx.effect(register, label)
+    return register()
+  }
+
+  /**
    * @param {object|string} target - agent or session id.
    * @returns {Promise<object>} the store for that session's directory.
    */
@@ -55,18 +68,18 @@ export function apply(ctx, config) {
   const prompt = createPromptAgent(ctx)
 
   for (const definition of toolDefinitions(storeFor)) {
-    disposers.push(ctx.effect(
+    disposers.push(effect(
       () => ctx.tools.register(definition),
       `learning-center/tool/${definition.name}`,
     ))
   }
-  disposers.push(ctx.effect(
+  disposers.push(effect(
     () => registerCommand(ctx, {
       promptAgent: (agent, text) => prompt(agent && agent.session ? agent.session.id : undefined, text),
     }),
     'learning-center/command',
   ))
-  disposers.push(ctx.effect(
+  disposers.push(effect(
     () => ctx.webServer.register({
       kind: 'exact',
       path: '/api/learning',

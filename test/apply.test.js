@@ -10,7 +10,7 @@ import { withTempStore } from './helpers.js'
  * @param {{ withWorkingDirectory?: boolean, withAgents?: boolean, baseDir?: string }} options - which services exist.
  * @returns {{ ctx: object, record: object, agent: object }} fake context, registrations, and the session agent.
  */
-function fakeCtx({ withWorkingDirectory = true, withAgents = true, baseDir = process.cwd() } = {}) {
+function fakeCtx({ withWorkingDirectory = true, withAgents = true, withEffect = true, baseDir = process.cwd() } = {}) {
   const record = { tools: [], commands: [], routes: [], effects: [] }
   const agent = { session: { id: 's_1' }, followup() {} }
   const services = {}
@@ -34,6 +34,7 @@ function fakeCtx({ withWorkingDirectory = true, withAgents = true, baseDir = pro
     commands: { register: def => { record.commands.push(def); return () => {} } },
     webServer: { register: route => { record.routes.push(route); return () => {} } },
   }
+  if (!withEffect) delete ctx.effect
   return { ctx, record, agent }
 }
 
@@ -82,6 +83,15 @@ test('每个注册都挂在 ctx.effect 上，卸载时能释放', () => {
     assert.equal(typeof effect.label, 'string')
     assert.equal(typeof effect.dispose, 'function')
   }
+})
+
+test('ctx 没有 effect 时仍然完成注册，不会整条插件激活失败', () => {
+  const { ctx, record } = fakeCtx({ withEffect: false })
+  assert.doesNotThrow(() => apply(ctx, {}))
+  assert.equal(record.tools.length, 4)
+  assert.equal(record.commands.length, 1)
+  assert.equal(record.routes.length, 1)
+  assert.equal(record.effects.length, 0)
 })
 
 test('apply 返回清理函数', () => {
