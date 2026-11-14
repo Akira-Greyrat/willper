@@ -114,8 +114,11 @@ export function validateDraft(raw, options) {
   if (answer.length === 0 && points.length === 0) flags.push('missing_answer')
 
   const anchor = filled(source.anchor) ? String(source.anchor) : ''
-  if (materialText === null) flags.push('anchor_unverified')
-  else if (!findAnchor(anchor, materialText)) flags.push('anchor_missing')
+  const unsourced = options.allowUnsourced === true && file.length === 0 && anchor.length === 0
+  if (!unsourced) {
+    if (materialText === null) flags.push('anchor_unverified')
+    else if (!findAnchor(anchor, materialText)) flags.push('anchor_missing')
+  }
 
   if (/见下?图|如图|见图/u.test(stem) && source.hasImage !== true) flags.push('image_hint_missing')
 
@@ -136,9 +139,11 @@ export function validateDraft(raw, options) {
       reference: {
         answer,
         points,
-        provenance: reference.provenance === 'ai-drafted' || reference.provenance === 'user'
-          ? reference.provenance
-          : 'source',
+        provenance: unsourced
+          ? 'user'
+          : (reference.provenance === 'ai-drafted' || reference.provenance === 'user'
+            ? reference.provenance
+            : 'source'),
         confidence: typeof reference.confidence === 'number' ? reference.confidence : null,
       },
       source: {

@@ -10,6 +10,7 @@ import { basename, extname, join } from 'node:path'
 import { readConfig } from './config.js'
 import { commitInbox } from './ingest.js'
 import { readJson, readJsonl, writeJson, writeJsonl } from './io.js'
+import { normalizePath, validateDraft } from './model.js'
 import { resolveStore } from './paths.js'
 
 /** Statuses the panel may set. */
@@ -212,6 +213,29 @@ export function createStore(baseDir, rawConfig) {
   }
 
   /**
+   * Validate and append one hand-written question.
+   * @param {object} raw - draft question.
+   * @returns {Promise<object>} the stored question.
+   */
+  async function addQuestion(raw) {
+    const ids = await nodeIds()
+    const texts = await materialTexts()
+    const file = normalizePath(raw && raw.source && raw.source.file)
+    const stemKey = basename(file, extname(file))
+    const verdict = validateDraft(raw, {
+      nodeIds: ids,
+      materialText: texts[file] ?? texts[stemKey] ?? null,
+      allowUnsourced: true,
+    })
+    if (!verdict.ok) throw new Error(`question rejected: ${verdict.flags.join(',')}`)
+    const rows = await readJsonl(paths.questions)
+    if (rows.some(q => q.key === verdict.q.key)) throw new Error('duplicate question: already in bank')
+    rows.push(verdict.q)
+    await writeJsonl(paths.questions, rows)
+    return verdict.q
+  }
+
+  /**
    * @returns {Promise<object>} the ingest report.
    */
   async function commit() {
@@ -234,6 +258,7 @@ export function createStore(baseDir, rawConfig) {
     recordAttempt,
     upsertTerms,
     materialTexts,
+    addQuestion,
     commitInbox: commit,
   }
 }
