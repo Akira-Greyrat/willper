@@ -204,15 +204,16 @@ window.__ModuleLoader__.load({
     }
 
     /**
-     * The sidebar glyph: same 24-unit grid, 1.5 stroke and currentColor outline
-     * as the host's own panel icons (plugins, schedules), so it sits in that row
-     * at the same optical weight.
+     * The sidebar glyph. The sidebar asks for a 16px edge (18 in the rail), so the
+     * art is drawn on a matching 16-unit grid with a 1.5 stroke: it then renders at
+     * the same optical weight as the host's own panel icons instead of being a
+     * larger drawing scaled down.
      * @param {{size?: number}} props - the sidebar's requested edge.
      * @returns {object} the icon element.
      */
-    function Icon({ size = 24 } = {}) {
+    function Icon({ size = 16 } = {}) {
       return h('svg', {
-        viewBox: '0 0 24 24',
+        viewBox: '0 0 16 16',
         width: size,
         height: size,
         fill: 'none',
@@ -223,8 +224,8 @@ window.__ModuleLoader__.load({
         'aria-hidden': true,
         style: { display: 'block' },
       },
-      h('path', { d: 'M12 6.75C10.4 5.6 8.4 5.25 6 5.25v12.25c2.4 0 4.4.35 6 1.5 1.6-1.15 3.6-1.5 6-1.5V5.25c-2.4 0-4.4.35-6 1.5Z' }),
-      h('path', { d: 'M12 6.75v12.25' }))
+      h('path', { d: 'M8 4.6C6.7 3.7 5 3.4 2.8 3.4v8.5c2.2 0 3.9.3 5.2 1.2 1.3-.9 3-1.2 5.2-1.2V3.4C11 3.4 9.3 3.7 8 4.6Z' }),
+      h('path', { d: 'M8 4.6v8.5' }))
     }
 
     /** Widest the term popover may get, in pixels. */

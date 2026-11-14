@@ -193,7 +193,7 @@ test('侧栏图标用宿主同一套栅格与线宽', async () => {
   assert.equal(element.type, 'svg')
   assert.equal(element.props.width, 20)
   assert.equal(element.props.height, 20)
-  assert.equal(element.props.viewBox, '0 0 24 24')
+  assert.equal(element.props.viewBox, '0 0 16 16')
   assert.equal(element.props.fill, 'none')
   assert.equal(element.props.stroke, 'currentColor')
   assert.equal(element.props.strokeWidth, 1.5)
