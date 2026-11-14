@@ -157,7 +157,7 @@ window.__ModuleLoader__.load({
       .lc-card { border: 1px solid var(--dsw-alias-border-l1); border-radius: 10px; background: var(--dsw-alias-bg-layer-1); padding: 18px 20px; max-width: 760px; }
       .lc-stem { white-space: pre-wrap; line-height: 1.7; font-size: 15px; margin: 0 0 14px; }
       .lc-term { border: 0; background: transparent; padding: 0; font: inherit; color: var(--dsw-alias-brand-primary); border-bottom: 1px dashed var(--dsw-alias-brand-primary); cursor: pointer; }
-      .lc-pop { margin: 8px 0 0; padding: 10px 12px; border: 1px solid var(--dsw-alias-border-l1); border-radius: 8px; background: var(--dsw-alias-bg-overlay); white-space: pre-wrap; line-height: 1.6; }
+      .lc-pop { position: fixed; z-index: 60; margin: 0; padding: 10px 12px; border: 1px solid var(--dsw-alias-border-l2); border-radius: 8px; background: var(--dsw-alias-bg-overlay); box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18); white-space: pre-wrap; line-height: 1.6; font-size: 13px; }
       .lc-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
       .lc-btn { border: 1px solid var(--dsw-alias-border-l2); background: var(--dsw-alias-bg-layer-2); color: var(--dsw-alias-label-primary); border-radius: 6px; padding: 6px 12px; cursor: pointer; font: inherit; }
       .lc-btn:hover { border-color: var(--dsw-alias-brand-primary); }
@@ -211,12 +211,56 @@ window.__ModuleLoader__.load({
         h('path', { d: 'M34 44l6 6 12-14', fill: 'none', stroke: 'currentColor', strokeWidth: 5, strokeLinecap: 'round', strokeLinejoin: 'round' }))
     }
 
+    /** Widest the term popover may get, in pixels. */
+    const POPOVER_WIDTH = 320
+
+    /**
+     * Place the term popover next to its term, inside the viewport: to the right
+     * edge it slides left, near the bottom it flips above.
+     * @param {{top: number, bottom: number, left: number, right: number}} rect - the term's box.
+     * @param {{width: number, height: number}} viewport - window size.
+     * @returns {object} inline style for the fixed-position card.
+     */
+    function popoverStyle(rect, viewport) {
+      const left = Math.max(8, Math.min(rect.left, viewport.width - POPOVER_WIDTH - 8))
+      const style = { left: `${left}px`, width: `${POPOVER_WIDTH}px` }
+      if (viewport.height - rect.bottom < 200) {
+        style.bottom = `${Math.max(8, viewport.height - rect.top + 6)}px`
+      } else {
+        style.top = `${rect.bottom + 6}px`
+      }
+      return style
+    }
+
+    /**
+     * The floating definition card for one term.
+     * @param {{term: object|null, style: object, onClose: Function, t: Function}} props - component props.
+     * @returns {object} React node.
+     */
+    function TermPopover({ term, style, onClose, t }) {
+      useEffect(() => {
+        const onKey = event => {
+          if (event.key === 'Escape') onClose()
+        }
+        const onScroll = () => onClose()
+        window.addEventListener('keydown', onKey)
+        window.addEventListener('scroll', onScroll, true)
+        return () => {
+          window.removeEventListener('keydown', onKey)
+          window.removeEventListener('scroll', onScroll, true)
+        }
+      }, [onClose])
+      return h('div', { className: 'lc-pop', style },
+        h('strong', null, term && term.text),
+        h('div', null, (term && term.definition) || t('noDefinition')))
+    }
+
     /**
      * Render a stem with clickable glossary terms.
-     * @param {{stem: string, termHits: object[]}} props - card data.
+     * @param {{stem: string, termHits: object[], terms: object, onPick: Function, picked: object|null}} props - card data.
      * @returns {object} React nodes.
      */
-    function StemView({ stem, termHits, terms, onPick, activeTerm }) {
+    function StemView({ stem, termHits, onPick, picked }) {
       const parts = []
       let cursor = 0
       termHits.forEach((hit, index) => {
@@ -225,19 +269,15 @@ window.__ModuleLoader__.load({
           key: `t${index}`,
           type: 'button',
           className: 'lc-term',
-          onClick: () => onPick(activeTerm === index ? null : index),
+          onClick: event => {
+            const rect = event.currentTarget.getBoundingClientRect()
+            onPick(picked && picked.index === index ? null : { index, rect })
+          },
         }, hit.text))
         cursor = hit.end
       })
       if (cursor < stem.length) parts.push(stem.slice(cursor))
-      const open = activeTerm !== null && termHits[activeTerm] ? termHits[activeTerm] : null
-      return h('div', null,
-        h('p', { className: 'lc-stem' }, parts),
-        open
-          ? h('div', { className: 'lc-pop' },
-            h('strong', null, open.text),
-            h('div', null, (terms[open.text] && terms[open.text].definition) || t('noDefinition')))
-          : null)
+      return h('p', { className: 'lc-stem' }, parts)
     }
 
     /**
@@ -326,9 +366,9 @@ window.__ModuleLoader__.load({
      * @param {object} props - component props.
      * @returns {object} React node.
      */
-    function QuestionCard({ card, terms, t, shownSeen, shownTotal, answerOpen, openTerm, onToggleAnswer, onPickTerm, onNext, onPrev, canPrev, onFavorite, onRevisit, revisit }) {
+    function QuestionCard({ card, t, shownSeen, shownTotal, answerOpen, openTerm, onToggleAnswer, onPickTerm, onNext, onPrev, canPrev, onFavorite, onRevisit, revisit }) {
       return h('div', { className: 'lc-card' },
-        h(StemView, { stem: card.stem, termHits: card.termHits, terms, onPick: onPickTerm, activeTerm: openTerm }),
+        h(StemView, { stem: card.stem, termHits: card.termHits, onPick: onPickTerm, picked: openTerm }),
         h('div', { className: 'lc-actions' },
           h('button', { type: 'button', className: 'lc-btn', onClick: onToggleAnswer }, answerOpen ? t('hide') : t('reveal')),
           h('button', { type: 'button', className: 'lc-btn', onClick: onFavorite }, card.favorite ? '★' : '☆'),
@@ -666,25 +706,42 @@ window.__ModuleLoader__.load({
       const shownSeen = activeNode ? activeNode.seen : tree.reduce((sum, node) => sum + node.seen, 0)
       const shownTotal = activeNode ? activeNode.total : tree.reduce((sum, node) => sum + node.total, 0)
 
+      const pickedHit = card && openTerm ? card.termHits[openTerm.index] : null
+      const viewport = typeof window !== 'undefined' && window.innerWidth
+        ? { width: window.innerWidth, height: window.innerHeight }
+        : { width: 1200, height: 800 }
+      const popover = pickedHit
+        ? h(TermPopover, {
+          term: {
+            text: pickedHit.text,
+            definition: terms[pickedHit.text] && terms[pickedHit.text].definition,
+          },
+          style: popoverStyle(openTerm.rect, viewport),
+          onClose: () => setOpenTerm(null),
+          t,
+        })
+        : null
+
       const studyPane = hasTarget && hasTree && tab === 'study'
         ? (card
-          ? h(QuestionCard, {
-            card,
-            terms,
-            t,
-            shownSeen,
-            shownTotal,
-            answerOpen,
-            openTerm,
-            revisit,
-            canPrev: history.length > 0 || cursor > 0,
-            onToggleAnswer: () => setAnswerOpen(!answerOpen),
-            onPickTerm: setOpenTerm,
-            onNext: nextQuestion,
-            onPrev: prevQuestion,
-            onRevisit: toggleRevisit,
-            onFavorite: toggleFavorite,
-          })
+          ? h('div', null,
+            h(QuestionCard, {
+              card,
+              t,
+              shownSeen,
+              shownTotal,
+              answerOpen,
+              openTerm,
+              revisit,
+              canPrev: history.length > 0 || cursor > 0,
+              onToggleAnswer: () => setAnswerOpen(!answerOpen),
+              onPickTerm: setOpenTerm,
+              onNext: nextQuestion,
+              onPrev: prevQuestion,
+              onRevisit: toggleRevisit,
+              onFavorite: toggleFavorite,
+            }),
+            popover)
           : h('div', null,
             h('p', { className: 'lc-node-sub' }, nodeHasQuestions ? t('allSeen') : t('noQuestions')),
             h('p', { className: 'lc-node-sub' }, t('importHint')),
@@ -850,7 +907,7 @@ window.__ModuleLoader__.load({
         }, props => h(PanelBoundary, { t }, h(Panel, { ...props, layout, t }))))
       },
       /** Rendered-only internals, exposed so the node harness can exercise them. */
-      __test: { PanelBoundary },
+      __test: { PanelBoundary, popoverStyle },
     }
   },
 })

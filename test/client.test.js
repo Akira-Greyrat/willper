@@ -160,7 +160,25 @@ test('渲染崩溃时显示错误信息而不是白屏', async () => {
   assert.ok(JSON.stringify(tree).includes('boom'), 'the message must be visible')
 })
 
-test('主面板组件是 Panel，外面套着错误边界', async () => {
+test('术语弹窗贴着术语定位，并夹在视口内', async () => {
+  const { module } = await loadClient()
+  const style = module.__test && module.__test.popoverStyle
+  assert.equal(typeof style, 'function')
+  const rect = { top: 100, bottom: 120, left: 200, right: 250 }
+  const viewport = { width: 1200, height: 800 }
+  const normal = style(rect, viewport)
+  assert.equal(normal.top, '126px')
+  assert.equal(normal.left, '200px')
+
+  const nearRight = style({ top: 100, bottom: 120, left: 1100, right: 1150 }, viewport)
+  assert.ok(Number.parseInt(nearRight.left, 10) + 320 <= 1200, 'must not overflow the right edge')
+
+  const nearBottom = style({ top: 740, bottom: 760, left: 200, right: 250 }, viewport)
+  assert.ok(nearBottom.bottom, 'flips above the term near the bottom edge')
+  assert.equal(nearBottom.top, undefined)
+})
+
+test('mainPanel 组件是 Panel，外面套着错误边界', async () => {
   const { module, registrations } = await loadClient()
   module.apply(fakeCtx(registrations, { services: {} }))
   const main = registrations.find(entry => entry.options.key === 'learning')
