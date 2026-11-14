@@ -180,6 +180,20 @@ test('没有会话时 400 而不是崩', async () => {
   })
 })
 
+test('sessions op 不需要 sessionId', async () => {
+  await withTempStore(async (_paths, baseDir) => {
+    const store = createStore(baseDir)
+    const handler = handleApi({
+      storeFor: async () => store,
+      promptAgent: async () => true,
+      listSessions: async () => [{ id: 's1', title: '我的会话' }],
+    })
+    const r = await callApi(handler, { op: 'sessions' })
+    assert.equal(r.status, 200)
+    assert.deepEqual(r.body.sessions, [{ id: 's1', title: '我的会话' }])
+  })
+})
+
 test('updateQuestion 走同一实现，改坏必填字段时 400 且库不变', async () => {
   await withApi(async ({ handler, store }) => {
     await ensureDir(store.paths.root)

@@ -45,10 +45,10 @@ function send(res, status, payload) {
 
 /**
  * Build the route handler.
- * @param {{ storeFor: (sessionId: string) => Promise<object>, promptAgent: (sessionId: string, text: string) => Promise<boolean>, maxBytes?: number }} deps - store resolver, session prompt and request size cap.
+ * @param {{ storeFor: (sessionId: string) => Promise<object>, promptAgent: (sessionId: string, text: string) => Promise<boolean>, listSessions?: () => Promise<object[]>, maxBytes?: number }} deps - store resolver, session prompt, session list and request size cap.
  * @returns {(req: object, res: object) => Promise<void>} the handler.
  */
-export function handleApi({ storeFor, promptAgent, maxBytes }) {
+export function handleApi({ storeFor, promptAgent, listSessions, maxBytes }) {
   const limit = typeof maxBytes === 'number' && maxBytes > 0 ? maxBytes : 8 * 1024 * 1024
   return async function handler(req, res) {
     if (req.method !== 'POST') {
@@ -61,11 +61,11 @@ export function handleApi({ storeFor, promptAgent, maxBytes }) {
       const raw = await readBody(req, limit)
       body = JSON.parse(raw)
       if (!body || typeof body !== 'object') throw new Error('bad json')
-      if (typeof body.sessionId !== 'string' || body.sessionId.length === 0) {
+      if (body.op !== 'sessions' && (typeof body.sessionId !== 'string' || body.sessionId.length === 0)) {
         send(res, 400, { error: 'missing session' })
         return
       }
-      store = await storeFor(body.sessionId)
+      store = body.op === 'sessions' ? undefined : await storeFor(body.sessionId)
     } catch (error) {
       if (error && error.code === 'TOO_LARGE') {
         send(res, 413, { error: 'body too large' })
@@ -77,7 +77,7 @@ export function handleApi({ storeFor, promptAgent, maxBytes }) {
 
     const params = body.params ?? {}
     try {
-      const result = await dispatch(body.op, params, body.sessionId, store, promptAgent)
+      const result = await dispatch(body.op, params, body.sessionId, store, promptAgent, listSessions)
       send(res, 200, result)
     } catch (error) {
       const message = error && error.message ? error.message : String(error)
@@ -96,10 +96,15 @@ export function handleApi({ storeFor, promptAgent, maxBytes }) {
  * @param {string} sessionId - calling session.
  * @param {object} store - the store for that session.
  * @param {(sessionId: string, text: string) => Promise<boolean>} promptAgent - session prompt.
+ * @param {(() => Promise<object[]>) | undefined} listSessions - live session list.
  * @returns {Promise<object>} JSON payload.
  */
-async function dispatch(op, params, sessionId, store, promptAgent) {
+async function dispatch(op, params, sessionId, store, promptAgent, listSessions) {
   switch (op) {
+    case 'sessions': {
+      const sessions = typeof listSessions === 'function' ? await listSessions() : []
+      return { sessions }
+    }
     case 'meta': {
       const { meta } = await store.load()
       return meta

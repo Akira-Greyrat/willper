@@ -18,7 +18,10 @@ function fakeCtx({ withWorkingDirectory = true, withAgents = true, baseDir = pro
     services.workingDirectory = { get: () => baseDir, defaultDirectory: baseDir }
   }
   if (withAgents) {
-    services.agents = { get: id => (id === 's_1' ? agent : undefined) }
+    services.agents = {
+      get: id => (id === 's_1' ? agent : undefined),
+      list: () => [agent],
+    }
   }
   const ctx = {
     get: name => services[name],
@@ -88,6 +91,17 @@ test('没有 workingDirectory 时 apply 不抛错，工具给出明确错误', a
     () => status.execute({}, { agent: { session: { id: 's_1' } } }),
     /没有工作目录|no working directory/,
   )
+})
+
+test('路由的 sessions 不需要会话 id', async () => {
+  await withTempStore(async (_paths, baseDir) => {
+    const { ctx, record } = fakeCtx({ baseDir })
+    apply(ctx, {})
+    const r = await post(record.routes[0].handler, { op: 'sessions' })
+    assert.equal(r.status, 200)
+    assert.equal(r.body.sessions.length, 1)
+    assert.equal(r.body.sessions[0].id, 's_1')
+  })
 })
 
 test('路由的 prompt 在没有 agents 服务时返回 400', async () => {

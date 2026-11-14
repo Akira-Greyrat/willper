@@ -1,0 +1,3 @@
+# Study data lives in the working directory by design; it is not part of this package.
+learning/
+node_modules/

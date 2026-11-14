@@ -64,6 +64,14 @@ export function apply(ctx, config) {
     handler: handleApi({
       storeFor,
       promptAgent: (sessionId, text) => prompt(sessionId, text),
+      listSessions: async () => {
+        const agents = ctx.get('agents')
+        const list = agents && typeof agents.list === 'function' ? agents.list() : []
+        return list.map(agent => ({
+          id: agent.session.id,
+          title: (agent.session.header && agent.session.header.title) || agent.session.id,
+        }))
+      },
       maxBytes: resolved.maxDraftBytes,
     }),
   }))
