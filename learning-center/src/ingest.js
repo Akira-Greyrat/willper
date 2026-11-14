@@ -116,7 +116,7 @@ export async function commitInbox(paths, options) {
       report.merged += 1
     } else {
       bank.set(q.key, q)
-      report.added += 1
+      if (verdict.ok) report.added += 1
     }
   }
 

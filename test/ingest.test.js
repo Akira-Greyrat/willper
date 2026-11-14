@@ -13,7 +13,12 @@ const draft = (over = {}) => ({
   ...over,
 })
 
-const options = () => ({ nodeIds: new Set(['n_1']), materialTextByFile: { 'materials/bank.md': '什么是闭包？函数与其词法环境的组合。' } })
+const options = () => ({
+  nodeIds: new Set(['n_1']),
+  materialTextByFile: {
+    'materials/bank.md': '什么是闭包？函数与其词法环境的组合。\n什么是作用域？作用域决定变量的可见范围。',
+  },
+})
 
 test('新题入库并移走草稿文件', async () => {
   await withTempStore(async paths => {
