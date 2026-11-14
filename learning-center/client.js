@@ -778,13 +778,28 @@ window.__ModuleLoader__.load({
     return {
       inject: ['slots'],
       apply(ctx) {
+        // Optional services are read through ctx.get: the restricted client
+        // context throws on a property access the module did not `inject`, so
+        // `ctx.layout` here would crash every render with "cannot get property
+        // layout without inject".
+        const layout = typeof ctx.get === 'function' ? ctx.get('layout') : undefined
+        const locale = typeof ctx.get === 'function' ? ctx.get('locale') : undefined
         let t = key => ZH[key] ?? key
         try {
-          if (ctx.locale && typeof ctx.locale.register === 'function') {
-            ctx.locale.register('learning-center', 'zh', ZH)
-            ctx.locale.register('learning-center', 'en', EN)
-            const bound = ctx.locale.bind('learning-center')
-            if (typeof bound === 'function') t = key => bound(key)
+          if (locale && typeof locale.register === 'function') {
+            locale.register('learning-center', 'zh', ZH)
+            locale.register('learning-center', 'en', EN)
+            const bound = typeof locale.bind === 'function' ? locale.bind('learning-center') : null
+            if (typeof bound === 'function') {
+              t = key => {
+                try {
+                  const value = bound(key)
+                  return typeof value === 'string' ? value : (ZH[key] ?? key)
+                } catch {
+                  return ZH[key] ?? key
+                }
+              }
+            }
           }
         } catch {
           // The locale service is optional; the Chinese copy above is the fallback.
@@ -800,7 +815,7 @@ window.__ModuleLoader__.load({
         }, Icon))
         ctx.slots.inject('main', () => ctx.slots.register({
           name: 'main', key: 'learning',
-        }, props => h(Panel, { ...props, layout: ctx.layout, t })))
+        }, props => h(Panel, { ...props, layout, t })))
       },
     }
   },

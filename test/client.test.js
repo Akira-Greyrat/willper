@@ -15,6 +15,15 @@ async function loadClient() {
     useState: initial => [initial, () => {}],
     useEffect: () => {},
     useCallback: fn => fn,
+    Component: class Component {
+      constructor(props) {
+        this.props = props
+        this.state = {}
+      }
+      setState(next) {
+        this.state = { ...this.state, ...next }
+      }
+    },
   }
   const document = {
     head: { appendChild() {} },
@@ -31,12 +40,21 @@ async function loadClient() {
   return { spec, module: spec.factory(require), registrations: [] }
 }
 
-/** @returns {object} a fake client context. */
-function fakeCtx(registrations) {
-  return {
+/**
+ * Model the host's restricted client context: reading a service the module did
+ * not declare in `inject` throws, which is what killed the first real render.
+ * @param {object[]} registrations - collected slot registrations.
+ * @param {{ services?: object, inject?: string[] }} options - available services and declared injections.
+ * @returns {object} the fake context.
+ */
+function fakeCtx(registrations, { services = {}, inject = ['slots'] } = {}) {
+  const target = {
     effect: callback => {
       callback()
       return () => {}
+    },
+    get(name) {
+      return services[name]
     },
     slots: {
       inject: (_key, callback) => {
@@ -48,8 +66,14 @@ function fakeCtx(registrations) {
         return () => {}
       },
     },
-    layout: { selectPanel() {} },
   }
+  return new Proxy(target, {
+    get(source, property) {
+      if (property in source) return source[property]
+      if (inject.includes(property)) return services[property]
+      throw new Error(`cannot get property "${String(property)}" without inject`)
+    },
+  })
 }
 
 test('client 模块暴露 loader id、slots 注入与 apply', async () => {
@@ -59,9 +83,22 @@ test('client 模块暴露 loader id、slots 注入与 apply', async () => {
   assert.equal(typeof module.apply, 'function')
 })
 
+test('apply 只读声明过的服务，不会因为 layout/locale 未 inject 而崩', async () => {
+  const { module, registrations } = await loadClient()
+  // fakeCtx 只暴露 slots；layout 与 locale 只能通过 ctx.get 拿到
+  const ctx = fakeCtx(registrations, {
+    services: {
+      layout: { selectPanel() {} },
+      locale: { register() {}, bind: () => key => `T:${key}` },
+    },
+  })
+  assert.doesNotThrow(() => module.apply(ctx))
+  assert.equal(registrations.length, 2)
+})
+
 test('apply 同时注册侧栏图标与主面板', async () => {
   const { module, registrations } = await loadClient()
-  module.apply(fakeCtx(registrations))
+  module.apply(fakeCtx(registrations, { services: {} }))
   const ids = registrations.map(entry => entry.options.id ?? entry.options.key)
   assert.deepEqual(ids.sort(), ['learning', 'learning'])
   const main = registrations.find(entry => entry.options.key === 'learning')
@@ -70,7 +107,7 @@ test('apply 同时注册侧栏图标与主面板', async () => {
 
 test('首次打开渲染空状态而不是白屏', async () => {
   const { module, registrations } = await loadClient()
-  module.apply(fakeCtx(registrations))
+  module.apply(fakeCtx(registrations, { services: {} }))
   const main = registrations.find(entry => entry.options.key === 'learning')
   const element = main.component({ useSessionStatus: () => undefined })
   assert.ok(element, 'the slot must render something')
@@ -79,9 +116,30 @@ test('首次打开渲染空状态而不是白屏', async () => {
   assert.equal(tree.type, 'div')
 })
 
+test('locale 绑定抛错时面板仍然渲染，不会白屏', async () => {
+  const { module, registrations } = await loadClient()
+  const ctx = fakeCtx(registrations, {
+    services: {
+      locale: {
+        register() {},
+        bind() {
+          return () => {
+            throw new Error('locale exploded')
+          }
+        },
+      },
+    },
+  })
+  module.apply(ctx)
+  const main = registrations.find(entry => entry.options.key === 'learning')
+  const wrapper = main.component({})
+  const tree = wrapper.type(wrapper.props)
+  assert.equal(tree.type, 'div')
+})
+
 test('主面板组件是 Panel，并接受标准 props', async () => {
   const { module, registrations } = await loadClient()
-  module.apply(fakeCtx(registrations))
+  module.apply(fakeCtx(registrations, { services: {} }))
   const main = registrations.find(entry => entry.options.key === 'learning')
   const wrapper = main.component({})
   assert.equal(wrapper.type.name, 'Panel')
