@@ -160,6 +160,21 @@ test('渲染崩溃时显示错误信息而不是白屏', async () => {
   assert.ok(JSON.stringify(tree).includes('boom'), 'the message must be visible')
 })
 
+test('侧栏图标用宿主同一套栅格与线宽', async () => {
+  const { module } = await loadClient()
+  const Icon = module.__test && module.__test.Icon
+  assert.ok(Icon, 'should expose the sidebar icon for tests')
+  const element = Icon({ size: 20, active: true })
+  assert.equal(element.type, 'svg')
+  assert.equal(element.props.width, 20)
+  assert.equal(element.props.height, 20)
+  assert.equal(element.props.viewBox, '0 0 24 24')
+  assert.equal(element.props.fill, 'none')
+  assert.equal(element.props.stroke, 'currentColor')
+  assert.equal(element.props.strokeWidth, 1.5)
+  assert.equal(element.props['aria-hidden'], true)
+})
+
 test('术语弹窗贴着术语定位，并夹在视口内', async () => {
   const { module } = await loadClient()
   const style = module.__test && module.__test.popoverStyle

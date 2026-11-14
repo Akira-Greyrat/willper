@@ -203,12 +203,28 @@ window.__ModuleLoader__.load({
       return payload
     }
 
-    /** @returns {object} the sidebar icon. */
-    function Icon() {
-      return h('svg', { viewBox: '0 0 64 64', width: 24, height: 24, 'aria-hidden': true, style: { display: 'block' } },
-        h('path', { d: 'M8 16h18a6 6 0 0 1 6 6v26a5 5 0 0 0-5-5H8z', fill: 'none', stroke: 'currentColor', strokeWidth: 4, strokeLinejoin: 'round' }),
-        h('path', { d: 'M56 16H38a6 6 0 0 0-6 6v26a5 5 0 0 1 5-5h19z', fill: 'none', stroke: 'currentColor', strokeWidth: 4, strokeLinejoin: 'round' }),
-        h('path', { d: 'M34 44l6 6 12-14', fill: 'none', stroke: 'currentColor', strokeWidth: 5, strokeLinecap: 'round', strokeLinejoin: 'round' }))
+    /**
+     * The sidebar glyph: same 24-unit grid, 1.5 stroke and currentColor outline
+     * as the host's own panel icons (plugins, schedules), so it sits in that row
+     * at the same optical weight.
+     * @param {{size?: number}} props - the sidebar's requested edge.
+     * @returns {object} the icon element.
+     */
+    function Icon({ size = 24 } = {}) {
+      return h('svg', {
+        viewBox: '0 0 24 24',
+        width: size,
+        height: size,
+        fill: 'none',
+        stroke: 'currentColor',
+        strokeWidth: 1.5,
+        strokeLinecap: 'round',
+        strokeLinejoin: 'round',
+        'aria-hidden': true,
+        style: { display: 'block' },
+      },
+      h('path', { d: 'M12 6.75C10.4 5.6 8.4 5.25 6 5.25v12.25c2.4 0 4.4.35 6 1.5 1.6-1.15 3.6-1.5 6-1.5V5.25c-2.4 0-4.4.35-6 1.5Z' }),
+      h('path', { d: 'M12 6.75v12.25' }))
     }
 
     /** Widest the term popover may get, in pixels. */
@@ -524,11 +540,23 @@ window.__ModuleLoader__.load({
         }
       }, [sessionId, reload, fail])
 
+      /** Refresh only the topic tree counts, without disturbing the open card. */
+      const refreshTree = useCallback(async () => {
+        if (!sessionId) return
+        try {
+          const next = await request('tree', {}, sessionId)
+          setTree(next.nodes)
+        } catch (err) {
+          fail(err)
+        }
+      }, [sessionId, fail])
+
       const nextQuestion = useCallback(async () => {
         if (!sessionId || !card) return
         try {
           await request('seen', { id: card.id }, sessionId)
           setHistory([...history, card.id])
+          await refreshTree()
           const following = page.items[cursor + 1]
           if (following) {
             setCursor(cursor + 1)
@@ -539,7 +567,7 @@ window.__ModuleLoader__.load({
         } catch (err) {
           fail(err)
         }
-      }, [sessionId, card, nodeId, revisit, history, cursor, page, loadQueue, showCard, fail])
+      }, [sessionId, card, nodeId, revisit, history, cursor, page, loadQueue, showCard, refreshTree, fail])
 
       const prevQuestion = useCallback(async () => {
         if (!sessionId) return
@@ -612,20 +640,22 @@ window.__ModuleLoader__.load({
         try {
           await request('setStatus', { id, status }, sessionId)
           setChecklist(await request('checklist', {}, sessionId))
+          await refreshTree()
         } catch (err) {
           fail(err)
         }
-      }, [sessionId, fail])
+      }, [sessionId, refreshTree, fail])
 
       const editQuestion = useCallback(async (item, stem) => {
         try {
           await request('updateQuestion', { id: item.id, patch: { stem } }, sessionId)
           setChecklist(await request('checklist', {}, sessionId))
+          await refreshTree()
           setError(null)
         } catch (err) {
           fail(err)
         }
-      }, [sessionId, fail])
+      }, [sessionId, refreshTree, fail])
 
       if (!sessionId) {
         return h('div', { className: 'lc-root' },
@@ -907,7 +937,7 @@ window.__ModuleLoader__.load({
         }, props => h(PanelBoundary, { t }, h(Panel, { ...props, layout, t }))))
       },
       /** Rendered-only internals, exposed so the node harness can exercise them. */
-      __test: { PanelBoundary, popoverStyle },
+      __test: { PanelBoundary, popoverStyle, Icon },
     }
   },
 })
