@@ -29,7 +29,7 @@ window.__ModuleLoader__.load({
       'level.elementary': '初级',
       'level.intermediate': '中级',
       'level.advanced': '高级',
-      save: '保存目标',
+      saveTarget: '保存目标',
       planCta: '让 AI 拆知识点与阶段',
       goToChat: '去看',
       sent: '已发到对话',
@@ -43,6 +43,24 @@ window.__ModuleLoader__.load({
       allSeen: '这个知识点的题都读过了。',
       revisit: '复习已读',
       prev: '上一题',
+      save: '保存',
+      cancel: '取消',
+      refresh: '刷新',
+      importHint: '在对话里用 /learn import <材料文件> 导入题库。',
+      emptyChecklist: '没有待核对的题。',
+      noDefinition: '（还没有释义）',
+      seenCount: '已读 %s / %s',
+      flag: {
+        missing_answer: '缺答案',
+        truncated: '题干被截断',
+        node_unknown: '知识点不存在',
+        anchor_missing: '原文找不到锚点',
+        anchor_unverified: '没有抽取文本，未核对',
+        image_hint_missing: '提到图但未标记',
+        empty_stem: '题干为空',
+        duplicate: '重复',
+        orphaned: '材料里已找不到',
+      },
       needsReview: '待核对',
       accept: '接受',
       reject: '驳回',
@@ -72,7 +90,7 @@ window.__ModuleLoader__.load({
       'level.elementary': 'Elementary',
       'level.intermediate': 'Intermediate',
       'level.advanced': 'Advanced',
-      save: 'Save target',
+      saveTarget: 'Save target',
       planCta: 'Ask the AI for the topic tree',
       goToChat: 'Open chat',
       sent: 'Sent to the conversation',
@@ -92,6 +110,8 @@ window.__ModuleLoader__.load({
       edit: 'Edit',
       editPrompt: 'New stem (empty cancels):',
       emptyBank: 'The bank is empty. Ask the AI to import one.',
+      emptyChecklist: 'No flagged questions.',
+      noDefinition: '(no definition yet)',
       emptyFavorites: 'Nothing favourited yet.',
       noTree: 'No topic tree yet.',
       loading: 'Loading…',
@@ -112,7 +132,10 @@ window.__ModuleLoader__.load({
       .lc-tree { width: 236px; flex: 0 0 236px; border-right: 1px solid var(--dsw-alias-border-l1); overflow: auto; padding: 10px; }
       .lc-node { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; width: 100%; text-align: left; border: 0; background: transparent; color: inherit; font: inherit; padding: 6px 8px; border-radius: 6px; cursor: pointer; }
       .lc-node:hover { background: var(--dsw-alias-bg-layer-2); }
-      .lc-node[data-active="true"] { background: var(--dsw-alias-bg-layer-2); color: var(--dsw-alias-label-primary); }
+      .lc-node[data-active="true"] { border-color: var(--dsw-alias-brand-primary); color: var(--dsw-alias-brand-primary); font-weight: 600; }
+      .lc-node { border: 1px solid transparent; }
+      .lc-tab[data-active="true"] { border-bottom: 2px solid var(--dsw-alias-brand-primary); color: var(--dsw-alias-brand-primary); font-weight: 600; border-radius: 0; }
+      .lc-node:hover { background: var(--dsw-alias-bg-layer-2); }
       .lc-node-sub { color: var(--dsw-alias-label-secondary); font-size: 12px; }
       .lc-main { flex: 1 1 auto; min-width: 0; overflow: auto; padding: 20px 24px; }
       .lc-card { border: 1px solid var(--dsw-alias-border-l1); border-radius: 10px; background: var(--dsw-alias-bg-layer-1); padding: 18px 20px; max-width: 760px; }
@@ -123,7 +146,9 @@ window.__ModuleLoader__.load({
       .lc-btn { border: 1px solid var(--dsw-alias-border-l2); background: var(--dsw-alias-bg-layer-2); color: var(--dsw-alias-label-primary); border-radius: 6px; padding: 6px 12px; cursor: pointer; font: inherit; }
       .lc-btn:hover { border-color: var(--dsw-alias-brand-primary); }
       .lc-btn[disabled] { opacity: 0.5; cursor: default; }
-      .lc-btn-primary { background: var(--dsw-alias-brand-primary); border-color: var(--dsw-alias-brand-primary); }
+      .lc-btn[data-active="true"] { border-color: var(--dsw-alias-brand-primary); color: var(--dsw-alias-brand-primary); font-weight: 600; }
+      .lc-btn-primary { border-color: var(--dsw-alias-brand-primary); color: var(--dsw-alias-brand-primary); font-weight: 600; background: transparent; }
+      .lc-btn-primary:hover { background: var(--dsw-alias-bg-layer-2); }
       .lc-answer { margin-top: 14px; border-top: 1px dashed var(--dsw-alias-border-l1); padding-top: 12px; white-space: pre-wrap; line-height: 1.7; }
       .lc-points { margin: 8px 0 0; padding-left: 18px; color: var(--dsw-alias-label-secondary); }
       .lc-meta { color: var(--dsw-alias-label-secondary); font-size: 12px; display: flex; gap: 10px; flex-wrap: wrap; margin-top: 12px; }
@@ -194,7 +219,7 @@ window.__ModuleLoader__.load({
         open
           ? h('div', { className: 'lc-pop' },
             h('strong', null, open.text),
-            h('div', null, (terms[open.text] && terms[open.text].definition) || '（还没有释义）'))
+            h('div', null, (terms[open.text] && terms[open.text].definition) || t('noDefinition')))
           : null)
     }
 
@@ -203,10 +228,23 @@ window.__ModuleLoader__.load({
      * @param {object} props - component props.
      * @returns {object} React node.
      */
+    /**
+     * @param {Function} t - copy lookup.
+     * @param {string} flag - a stored flag id.
+     * @returns {string} human wording for a flag.
+     */
+    function flagLabel(t, flag) {
+      const name = String(flag)
+      const table = typeof t('flag') === 'object' && t('flag') ? t('flag') : ZH.flag
+      if (name.startsWith('duplicate_of:')) return table.duplicate
+      return table[name] ?? name
+    }
+
     function ReviewList({ items, onStatus, onEdit, t }) {
       const [editing, setEditing] = useState(null)
       const [draft, setDraft] = useState('')
-      if (items.length === 0) return h('p', { className: 'lc-node-sub' }, t('emptyBank'))
+      const [problem, setProblem] = useState(null)
+      if (items.length === 0) return h('p', { className: 'lc-node-sub' }, t('emptyChecklist'))
       return h('div', null, items.map(item => h('div', { className: 'lc-row', key: item.id },
         h('div', { style: { minWidth: 0, flex: '1 1 auto' } },
           editing === item.id
@@ -217,7 +255,8 @@ window.__ModuleLoader__.load({
               onChange: event => setDraft(event.target.value),
             })
             : h('div', { className: 'lc-stem', style: { margin: 0 } }, item.stem),
-          h('div', { className: 'lc-flags' }, item.flags.join(' · ')),
+          editing === item.id && problem ? h('div', { className: 'lc-flags' }, problem) : null,
+          h('div', { className: 'lc-flags' }, item.flags.map(flag => flagLabel(t, flag)).join(' · ')),
           h('div', { className: 'lc-flag-list' },
             item.source && item.source.file ? `${item.source.file}${item.source.page ? ` · ${t('page').replace('%s', item.source.page)}` : ''}` : '')),
         h('div', { className: 'lc-actions' },
@@ -229,16 +268,24 @@ window.__ModuleLoader__.load({
                 className: 'lc-btn lc-btn-primary',
                 onClick: () => {
                   const next = draft.trim()
+                  if (next.length === 0) {
+                    setProblem('题干不能为空')
+                    return
+                  }
                   setEditing(null)
-                  if (next.length > 0 && next !== item.stem) onEdit(item, next)
+                  setProblem(null)
+                  if (next !== item.stem) onEdit(item, next)
                 },
-              }, t('accept')),
+              }, t('save')),
               h('button', {
                 key: 'cancel',
                 type: 'button',
                 className: 'lc-btn',
-                onClick: () => setEditing(null),
-              }, t('reject')),
+                onClick: () => {
+                  setEditing(null)
+                  setProblem(null)
+                },
+              }, t('cancel')),
             ]
             : [
               h('button', { key: 'accept', type: 'button', className: 'lc-btn', onClick: () => onStatus(item.id, 'ok') }, t('accept')),
@@ -248,6 +295,7 @@ window.__ModuleLoader__.load({
                 className: 'lc-btn',
                 onClick: () => {
                   setDraft(item.stem)
+                  setProblem(null)
                   setEditing(item.id)
                 },
               }, t('edit')),
@@ -261,7 +309,7 @@ window.__ModuleLoader__.load({
      * @param {object} props - component props.
      * @returns {object} React node.
      */
-    function QuestionCard({ card, terms, t, total, answerOpen, openTerm, onToggleAnswer, onPickTerm, onNext, onPrev, canPrev, onFavorite, onRevisit, revisit }) {
+    function QuestionCard({ card, terms, t, shownSeen, shownTotal, answerOpen, openTerm, onToggleAnswer, onPickTerm, onNext, onPrev, canPrev, onFavorite, onRevisit, revisit }) {
       return h('div', { className: 'lc-card' },
         h(StemView, { stem: card.stem, termHits: card.termHits, terms, onPick: onPickTerm, activeTerm: openTerm }),
         h('div', { className: 'lc-actions' },
@@ -278,7 +326,7 @@ window.__ModuleLoader__.load({
               : null)
           : null,
         h('div', { className: 'lc-meta' },
-          h('span', null, t('seen').replace('%s', String(total))),
+          h('span', null, t('seenCount').replace('%s', String(shownSeen)).replace('%s', String(shownTotal))),
           card.source && card.source.file
             ? h('span', null, `${t('source')}: ${card.source.file}${card.source.page ? ` · ${t('page').replace('%s', card.source.page)}` : ''}`)
             : null))
@@ -297,7 +345,8 @@ window.__ModuleLoader__.load({
       const [tab, setTab] = useState('study')
       const [nodeId, setNodeId] = useState(null)
       const [card, setCard] = useState(null)
-      const [queue, setQueue] = useState({ items: [], total: 0, offset: 0 })
+      const [page, setPage] = useState({ items: [], total: 0, offset: 0 })
+      const [cursor, setCursor] = useState(0)
       const [checklist, setChecklist] = useState({ items: [] })
       const [favorites, setFavorites] = useState({ items: [] })
       const [answerOpen, setAnswerOpen] = useState(false)
@@ -306,6 +355,7 @@ window.__ModuleLoader__.load({
       const [error, setError] = useState(null)
       const [busy, setBusy] = useState(false)
       const [sessionsList, setSessionsList] = useState([])
+      const [loaded, setLoaded] = useState(false)
       const [history, setHistory] = useState([])
       const [revisit, setRevisit] = useState(false)
 
@@ -335,15 +385,24 @@ window.__ModuleLoader__.load({
         setTerms(Object.fromEntries((nextTerms.terms || []).map(term => [term.term, term])))
       }, [])
 
-      /** Load one page of the practice queue. */
+      /** Show one question by id. */
+      const showCard = useCallback(async id => {
+        const detail = await request('question', { id }, sessionId)
+        setCard(detail.question)
+        setAnswerOpen(false)
+        setOpenTerm(null)
+      }, [sessionId])
+
+      /** Load one page of the practice queue and show its first card. */
       const loadQueue = useCallback(async (id, node, revisitMode) => {
-        const page = await request('queue', { nodeId: node ?? undefined, offset: 0, limit: 50, revisit: revisitMode === true }, id)
-        setQueue(page)
-        if (page.items.length === 0) {
+        const next = await request('queue', { nodeId: node ?? undefined, offset: 0, limit: 50, revisit: revisitMode === true }, id)
+        setPage(next)
+        setCursor(0)
+        if (next.items.length === 0) {
           setCard(null)
           return
         }
-        const detail = await request('question', { id: page.items[0].id }, id)
+        const detail = await request('question', { id: next.items[0].id }, id)
         setCard(detail.question)
         setAnswerOpen(false)
         setOpenTerm(null)
@@ -357,17 +416,27 @@ window.__ModuleLoader__.load({
             if (!alive) return
             const list = sessions.sessions ?? []
             setSessionsList(list)
+            setLoaded(true)
             const first = list[0]
             setSessionId(first ? first.id : null)
             if (!first) return
             await loadBasics(first.id)
             await loadQueue(first.id, null, false)
           } catch (err) {
-            if (alive) fail(err)
+            if (alive) {
+              setLoaded(true)
+              fail(err)
+            }
           }
         })()
         return () => { alive = false }
       }, [loadBasics, loadQueue, fail])
+
+      useEffect(() => {
+        if (!toast) return undefined
+        const timer = setTimeout(() => setToast(null), 8000)
+        return () => clearTimeout(timer)
+      }, [toast])
 
       const reload = useCallback(async () => {
         if (!sessionId) return
@@ -403,25 +472,34 @@ window.__ModuleLoader__.load({
         try {
           await request('seen', { id: card.id }, sessionId)
           setHistory([...history, card.id])
+          const following = page.items[cursor + 1]
+          if (following) {
+            setCursor(cursor + 1)
+            await showCard(following.id)
+            return
+          }
           await loadQueue(sessionId, nodeId, revisit)
         } catch (err) {
           fail(err)
         }
-      }, [sessionId, card, nodeId, revisit, history, loadQueue, fail])
+      }, [sessionId, card, nodeId, revisit, history, cursor, page, loadQueue, showCard, fail])
 
       const prevQuestion = useCallback(async () => {
-        if (!sessionId || history.length === 0) return
-        const id = history[history.length - 1]
-        setHistory(history.slice(0, -1))
+        if (!sessionId) return
         try {
-          const detail = await request('question', { id }, sessionId)
-          setCard(detail.question)
-          setAnswerOpen(false)
-          setOpenTerm(null)
+          if (cursor > 0) {
+            setCursor(cursor - 1)
+            await showCard(page.items[cursor - 1].id)
+            return
+          }
+          if (history.length === 0) return
+          const id = history[history.length - 1]
+          setHistory(history.slice(0, -1))
+          await showCard(id)
         } catch (err) {
           fail(err)
         }
-      }, [sessionId, history, fail])
+      }, [sessionId, cursor, page, history, showCard, fail])
 
       const toggleRevisit = useCallback(async () => {
         const next = !revisit
@@ -455,6 +533,7 @@ window.__ModuleLoader__.load({
           await request('favorite', { id: card.id, on: !card.favorite }, sessionId)
           const detail = await request('question', { id: card.id }, sessionId)
           setCard(detail.question)
+          setOpenTerm(null)
         } catch (err) {
           fail(err)
         }
@@ -494,7 +573,9 @@ window.__ModuleLoader__.load({
       if (!sessionId) {
         return h('div', { className: 'lc-root' },
           h('div', { className: 'lc-head' }, h('h1', { className: 'lc-title' }, t('title'))),
-          h('div', { className: 'lc-main' }, h('p', { className: 'lc-node-sub' }, t('sessionMissing'))))
+          error ? h('div', { className: 'lc-toast lc-error' }, t('error'), error) : null,
+          h('div', { className: 'lc-main' },
+            h('p', { className: 'lc-node-sub' }, loaded ? t('sessionMissing') : t('loading'))))
       }
 
       const tabs = ['study', 'bank', 'favorite']
@@ -513,7 +594,7 @@ window.__ModuleLoader__.load({
         sessionsList.length > 1
           ? h('select', {
             className: 'lc-input',
-            style: { width: 240, marginLeft: 'auto' },
+            style: { width: 220 },
             value: sessionId,
             onChange: async event => {
               const nextId = event.target.value
@@ -528,7 +609,14 @@ window.__ModuleLoader__.load({
               }
             },
           }, sessionsList.map(session => h('option', { key: session.id, value: session.id }, session.title)))
-          : null)
+          : null,
+        h('button', {
+          type: 'button',
+          className: 'lc-btn',
+          style: { marginLeft: 'auto' },
+          disabled: busy,
+          onClick: reload,
+        }, t('refresh')))
 
       const toastRow = toast
         ? h('div', { className: 'lc-toast' },
@@ -556,17 +644,23 @@ window.__ModuleLoader__.load({
           onClick: () => pickNode(node.id),
         }, h('span', null, node.title), h('span', { className: 'lc-node-sub' }, `${node.seen}/${node.total}`))))
 
+      const activeNode = nodeId ? tree.find(node => node.id === nodeId) : null
+      const nodeHasQuestions = activeNode ? activeNode.total > 0 : tree.some(node => node.total > 0)
+      const shownSeen = activeNode ? activeNode.seen : tree.reduce((sum, node) => sum + node.seen, 0)
+      const shownTotal = activeNode ? activeNode.total : tree.reduce((sum, node) => sum + node.total, 0)
+
       const studyPane = hasTarget && hasTree && tab === 'study'
         ? (card
           ? h(QuestionCard, {
             card,
             terms,
             t,
-            total: queue.total,
+            shownSeen,
+            shownTotal,
             answerOpen,
             openTerm,
             revisit,
-            canPrev: history.length > 0,
+            canPrev: history.length > 0 || cursor > 0,
             onToggleAnswer: () => setAnswerOpen(!answerOpen),
             onPickTerm: setOpenTerm,
             onNext: nextQuestion,
@@ -575,8 +669,9 @@ window.__ModuleLoader__.load({
             onFavorite: toggleFavorite,
           })
           : h('div', null,
-            h('p', { className: 'lc-node-sub' }, revisit ? t('noQuestions') : t('allSeen')),
-            revisit
+            h('p', { className: 'lc-node-sub' }, nodeHasQuestions ? t('allSeen') : t('noQuestions')),
+            h('p', { className: 'lc-node-sub' }, t('importHint')),
+            nodeHasQuestions || revisit
               ? null
               : h('button', { type: 'button', className: 'lc-btn', onClick: toggleRevisit }, t('revisit'))))
         : null
@@ -594,10 +689,13 @@ window.__ModuleLoader__.load({
               type: 'button',
               className: 'lc-btn',
               onClick: async () => {
-                const detail = await request('question', { id: item.id }, sessionId)
-                setCard(detail.question)
-                setTab('study')
-                setAnswerOpen(false)
+                try {
+                  await showCard(item.id)
+                  setTab('study')
+                  setError(null)
+                } catch (err) {
+                  fail(err)
+                }
               },
             }, t('study'))))))
         : null
@@ -658,7 +756,7 @@ window.__ModuleLoader__.load({
             className: 'lc-btn lc-btn-primary',
             disabled: busy || title.trim().length === 0,
             onClick: () => onSave({ title: title.trim(), statement: statement.trim(), level }),
-          }, t('save')))
+          }, t('saveTarget')))
     }
 
     return {
