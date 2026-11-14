@@ -52,6 +52,25 @@
 - 待核对页的「改」进入编辑后按钮还写着"接受/驳回"（实际语义是保存/取消），且留空会静默丢弃 → 编辑态改标"保存/取消"，空题干留在原地提示；flag 译成中文。
 - 收藏行点击没有错误处理 → 补上。
 
+## 重启后的实机验证（2026-11-14 21:55，端口 9755）
+
+宿主已重启，加载的是新一代模块。以下都是对运行中的宿主直接做的：
+
+| 项 | 做法 | 结果 |
+| --- | --- | --- |
+| 新 op 生效 | `POST /api/learning {op:"sessions"}` | ✅ 200，返回 2 个会话（旧一代这里是 400） |
+| 侧栏图标 | Client Slot `sidebar.panellist` | ✅ `learning` occupant，`active: true` |
+| 主面板 | Client Slot `main` | ✅ `learning` occupant，`active: true` |
+| 工具 | 直接调用 `learning_status` | ✅ 5 题 / 3 可练 / 2 待核对 |
+| 面板数据 | `meta`/`tree`/`terms`/`queue`/`checklist`/`favorites` 六个 op | ✅ 全部 200，内容与磁盘上的 `learning/` 一致 |
+| 术语 | `question` op 返回 `termHits` | ✅ 「闭包」命中 `start:3,end:5`，释义可取 |
+| 收藏往返 | `favorite on` → `favorites` → `favorite off` | ✅ 列表先有后空，数据已还原 |
+| 复习模式 | `queue {revisit:true}` | ✅ 返回全部 3 题 |
+
+## 只剩「看一眼」的部分
+
+渲染有没有白屏、按钮文字是否清楚、选中态是否可见，这些需要对页面看一眼（我这边没有浏览器控制，只能验证到数据与注册层）。清单见 `docs/notes/after-restart.md`。
+
 ## 未实测（需要重启宿主）
 
 - **面板界面**：Client 半已写好并通过语法检查，但安装时的模块代是占位版；替换已链接的 bundle 不会销毁旧注册（见 `docs/notes/api-shapes.md` §6），所以必须重启 DSH 才会加载新面板。
