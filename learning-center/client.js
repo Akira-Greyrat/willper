@@ -138,9 +138,10 @@ window.__ModuleLoader__.load({
     }
 
     const CSS = `
-      .lc-root { display: flex; flex-direction: column; height: 100%; min-height: 0; background: var(--dsw-alias-bg-base); color: var(--dsw-alias-label-primary); font-size: 14px; }
+      .lc-root { display: flex; flex-direction: column; height: 100%; min-height: 0; background: var(--dsw-alias-bg-base); color: var(--dsw-alias-label-primary); font-size: 13px; line-height: 20px; }
       .lc-head { display: flex; align-items: center; gap: 12px; padding: 12px 20px; border-bottom: 1px solid var(--dsw-alias-border-l1); flex: 0 0 auto; }
-      .lc-title { font-size: 15px; font-weight: 600; margin: 0; }
+      .lc-title { font-size: 20px; font-weight: 500; line-height: 28px; margin: 0; }
+      .lc-cardTitle { font-size: 15px; font-weight: 600; line-height: 22px; margin: 0; }
       .lc-tabs { display: flex; gap: 4px; margin-left: 8px; }
       .lc-tab { border: 0; background: transparent; color: var(--dsw-alias-label-secondary); padding: 6px 10px; border-radius: 6px; cursor: pointer; font: inherit; }
       .lc-tab[data-active="true"] { background: var(--dsw-alias-bg-layer-2); color: var(--dsw-alias-label-primary); }
@@ -155,7 +156,7 @@ window.__ModuleLoader__.load({
       .lc-node-sub { color: var(--dsw-alias-label-secondary); font-size: 12px; }
       .lc-main { flex: 1 1 auto; min-width: 0; overflow: auto; padding: 20px 24px; }
       .lc-card { border: 1px solid var(--dsw-alias-border-l1); border-radius: 10px; background: var(--dsw-alias-bg-layer-1); padding: 18px 20px; max-width: 760px; }
-      .lc-stem { white-space: pre-wrap; line-height: 1.7; font-size: 15px; margin: 0 0 14px; }
+      .lc-stem { white-space: pre-wrap; line-height: 1.75; font-size: 14px; margin: 0 0 14px; }
       .lc-term { border: 0; background: transparent; padding: 0; font: inherit; color: var(--dsw-alias-brand-primary); border-bottom: 1px dashed var(--dsw-alias-brand-primary); cursor: pointer; }
       .lc-pop { position: fixed; z-index: 60; margin: 0; padding: 10px 12px; border: 1px solid var(--dsw-alias-border-l2); border-radius: 8px; background: var(--dsw-alias-bg-overlay); box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18); white-space: pre-wrap; line-height: 1.6; font-size: 13px; }
       .lc-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
@@ -836,7 +837,7 @@ window.__ModuleLoader__.load({
         hasTarget ? null : h(EmptyState, { t, busy, onSave: saveTarget }),
         hasTarget && !hasTree
           ? h('div', { className: 'lc-empty' },
-            h('h2', { className: 'lc-title' }, meta.target.title),
+            h('h2', { className: 'lc-cardTitle' }, meta.target.title),
             h('p', { className: 'lc-node-sub' }, meta.target.statement || ''),
             h('p', { className: 'lc-node-sub' }, t('noTree')),
             h('div', { className: 'lc-actions' },
