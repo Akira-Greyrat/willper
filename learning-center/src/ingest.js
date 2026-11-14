@@ -6,8 +6,26 @@
  */
 
 import { readFile } from 'node:fs/promises'
+import { basename, extname } from 'node:path'
 import { moveInto, readJson, readJsonl, writeJson, writeJsonl, ensureDir } from './io.js'
-import { mintId, normalizeStem, questionKey, validateDraft } from './model.js'
+import { mintId, normalizePath, normalizeStem, questionKey, validateDraft } from './model.js'
+
+/**
+ * Find the extracted text for one draft's source file: the exact path first,
+ * then the material's file stem (`materials/bank.txt` for `materials/bank.md`).
+ * @param {Record<string, string>|undefined} byFile - extracted text table.
+ * @param {object} raw - the draft.
+ * @returns {string|null} the text, or null when the material has none.
+ */
+function pickMaterialText(byFile, raw) {
+  if (!byFile) return null
+  const file = normalizePath(raw && raw.source && raw.source.file)
+  if (file.length === 0) return null
+  if (Object.hasOwn(byFile, file)) return byFile[file]
+  const stem = basename(file, extname(file))
+  if (Object.hasOwn(byFile, stem)) return byFile[stem]
+  return null
+}
 
 /**
  * Read a draft file line by line, keeping parse failures as reasons instead of
@@ -62,7 +80,7 @@ export async function commitInbox(paths, options) {
   for (const raw of drafts) {
     const verdict = validateDraft(raw, {
       nodeIds: options.nodeIds,
-      materialTextByFile: options.materialTextByFile ?? {},
+      materialText: pickMaterialText(options.materialTextByFile, raw),
       now,
     })
 
