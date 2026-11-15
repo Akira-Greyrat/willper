@@ -14,6 +14,7 @@ import { commitInbox } from './ingest.js'
 import { readJson, readJsonl, writeJson, writeJsonl } from './io.js'
 import { normalizePath, questionKey, validateDraft, validatePatch } from './model.js'
 import { normalizeRelated, resolveRelatedIds } from './related.js'
+import { PLAN_STATUSES } from './plan.js'
 import { resolveStore } from './paths.js'
 import { weakView } from './views.js'
 
@@ -287,6 +288,24 @@ export function createStore(baseDir, rawConfig) {
   }
 
   /**
+   * Move one plan stage between todo / doing / done.
+   * @param {string} stageId - stage id from `meta.plan`.
+   * @param {string} status - one of the plan statuses.
+   * @returns {Promise<{ plan: object[] }>} the updated plan.
+   */
+  async function setStageStatus(stageId, status) {
+    if (!PLAN_STATUSES.includes(status)) throw new Error(`unknown status: ${String(status)}`)
+    const meta = await readJson(paths.meta, null) ?? emptyMeta(config)
+    const plan = Array.isArray(meta.plan) ? meta.plan : []
+    const stage = plan.find(item => item && item.id === stageId)
+    if (!stage) throw new Error(`unknown stage: ${String(stageId)}`)
+    stage.status = status
+    meta.plan = plan
+    await writeJson(paths.meta, meta)
+    return { plan }
+  }
+
+  /**
    * @returns {Promise<object>} the meta settings block.
    */
   async function loadSettings() {
@@ -399,6 +418,7 @@ export function createStore(baseDir, rawConfig) {
     gradeAttempt,
     setDismissed,
     sampleQuiz,
+    setStageStatus,
     loadSettings,
     saveSettings,
     upsertTerms,

@@ -114,6 +114,31 @@ export function questionView(questions, terms, id, progress = {}, attempts = [])
 }
 
 /**
+ * The staged plan with knowledge-node ids resolved to titles.
+ * @param {object} meta - target, tree, plan.
+ * @returns {{ stages: object[] }} stages in author order.
+ */
+export function planView(meta) {
+  const tree = Array.isArray(meta && meta.tree) ? meta.tree : []
+  const titles = new Map(tree.map(node => [node.id, node.title]))
+  const plan = Array.isArray(meta && meta.plan) ? meta.plan : []
+  const stages = plan.map(stage => ({
+    id: stage.id,
+    title: typeof stage.title === 'string' ? stage.title : '',
+    status: typeof stage.status === 'string' ? stage.status : 'todo',
+    nodeTitles: (Array.isArray(stage.nodeIds) ? stage.nodeIds : [])
+      .map(id => titles.get(id))
+      .filter(Boolean),
+    reading: stage.reading ?? [],
+    prereqs: Array.isArray(stage.prereqs) ? stage.prereqs : [],
+    perspectives: Array.isArray(stage.perspectives) ? stage.perspectives : [],
+    project: stage.project ?? null,
+    checkpoints: Array.isArray(stage.checkpoints) ? stage.checkpoints : [],
+  }))
+  return { stages }
+}
+
+/**
  * The weak-question list: questions practised and never fully covered, most
  * missed first. A dismissed row stays out until it is dismissed again.
  * @param {object[]} questions - the bank.

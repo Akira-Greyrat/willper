@@ -291,3 +291,15 @@ test('抽查不会抽到没有要点的题', async () => {
     assert.equal(await store.sampleQuiz(), null)
   })
 })
+test('setStageStatus 只改目标阶段', async () => {
+  await withStore(async store => {
+    const { meta } = await store.load()
+    meta.plan = [{ id: 'p_1', title: '一', status: 'todo' }, { id: 'p_2', title: '二', status: 'todo' }]
+    await store.saveMeta(meta)
+    const result = await store.setStageStatus('p_2', 'done')
+    assert.equal(result.plan.find(stage => stage.id === 'p_2').status, 'done')
+    assert.equal(result.plan.find(stage => stage.id === 'p_1').status, 'todo')
+    await assert.rejects(() => store.setStageStatus('p_9', 'done'), /unknown stage/)
+    await assert.rejects(() => store.setStageStatus('p_1', 'nope'), /unknown status/)
+  })
+})

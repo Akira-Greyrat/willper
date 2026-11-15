@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { treeView, queueView, questionView, checklistView, favoritesView, weakView } from '../learning-center/src/views.js'
+import { treeView, queueView, questionView, checklistView, favoritesView, weakView, planView } from '../learning-center/src/views.js'
 
 const meta = {
   tree: [
@@ -151,4 +151,17 @@ test('移出的错题不出现在错题本', () => {
 test('没答过的题不进错题本', () => {
   const weak = weakView([q('q1'), q('q2')], { q1: { seen: true } })
   assert.deepEqual(weak.items, [])
+})
+test('planView 把知识点 id 换成标题', () => {
+  const view = planView({ tree: [{ id: 'n_1', title: '基础' }], plan: [{ id: 'p_1', title: '一', nodeIds: ['n_1', 'gone'], reading: '第 3 节', project: '写个计数器' }] })
+  assert.deepEqual(view.stages[0].nodeTitles, ['基础'])
+  assert.equal(view.stages[0].reading, '第 3 节')
+  assert.equal(view.stages[0].status, 'todo')
+  assert.deepEqual(view.stages[0].checkpoints, [])
+  assert.equal(view.stages[0].project, '写个计数器')
+})
+
+test('planView 在没有计划时给空数组', () => {
+  assert.deepEqual(planView({ tree: [], plan: [] }).stages, [])
+  assert.deepEqual(planView(null).stages, [])
 })
