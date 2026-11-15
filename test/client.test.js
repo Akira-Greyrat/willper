@@ -533,3 +533,11 @@ test('标准答案可以就地编辑，要点按行拆开', async () => {
   assert.deepEqual(patchOf(' 新答案 ', '要点一\n\n 要点二 '), { answer: '新答案', points: ['要点一', '要点二'] })
   assert.deepEqual(patchOf('', ''), { answer: '', points: [] })
 })
+test('旧的 revisit 命名没有残留碎片', async () => {
+  const source = await readFile(new URL('../learning-center/client.js', import.meta.url), 'utf8')
+  // A rename that leaves half an identifier behind (oevisitMode, next in
+  // pickNode) only explodes when the callback runs in the browser. Catch the
+  // fragments here instead.
+  assert.equal(/evisit/i.test(source), false, ' leftovers of the old "revisit" name')
+  assert.equal(/\bnextMode\b/.test(source), false)
+})

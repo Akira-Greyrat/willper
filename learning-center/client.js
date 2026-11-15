@@ -642,7 +642,7 @@ window.__ModuleLoader__.load({
 
       /** Load one page of the practice queue and show its first card. */
       const loadQueue = useCallback(async (id, node, onlyUnseenMode) => {
-        const next = await request('queue', { nodeId: node ?? undefined, offset: 0, limit: 50, onlyUnseen: oevisitMode === true }, id)
+        const next = await request('queue', { nodeId: node ?? undefined, offset: 0, limit: 50, onlyUnseen: onlyUnseenMode === true }, id)
         setPage(next)
         setCursor(0)
         if (next.items.length === 0) {
