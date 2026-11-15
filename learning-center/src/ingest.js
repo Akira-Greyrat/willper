@@ -14,6 +14,7 @@ import { readFile } from 'node:fs/promises'
 import { basename, extname } from 'node:path'
 import { moveInto, readJson, readJsonl, writeJson, writeJsonl, ensureDir } from './io.js'
 import { dedupeKey, findAnchor, mintId, normalizePath, normalizeStem, questionKey, validateDraft } from './model.js'
+import { normalizeRelated, resolveRelatedIds } from './related.js'
 
 /**
  * Find the extracted text for one question's source file: the exact path first,
@@ -111,6 +112,9 @@ export async function commitInbox(paths, options) {
       reasons.push({ file: paths.inboxQuestions, flags: verdict.flags, reason: 'unkeyable' })
       continue
     }
+    // Cross-references arrive as stems; ids are minted here, so they are resolved
+    // once the whole batch is in the bank (below).
+    q.related = normalizeRelated(raw.related)
 
     const previous = bank.get(q.key) ?? byPreviousKey.get(q.key)
     const duplicateOwner = stemIndex.get(dedupeKey(q.stem))
@@ -178,7 +182,26 @@ export async function commitInbox(paths, options) {
   }
 
   const next = [...bank.values()]
-  const changed = report.added + report.merged + report.needsReview + report.orphaned > 0
+  let relatedTouched = false
+  for (const q of next) {
+    const block = q.related && Array.isArray(q.related.questions) ? q.related.questions : []
+    const { ids, missing, ambiguous } = resolveRelatedIds(next, block)
+    const same = ids.length === block.length && ids.every((id, index) => id === block[index])
+    if (!same) relatedTouched = true
+    q.related = {
+      questions: ids,
+      deeper: q.related && Array.isArray(q.related.deeper) ? q.related.deeper : [],
+      broader: q.related && Array.isArray(q.related.broader) ? q.related.broader : [],
+    }
+    for (const stem of missing) {
+      reasons.push({ file: paths.inboxQuestions, key: q.key, reason: `related_unresolved:${stem.slice(0, 20)}` })
+    }
+    for (const stem of ambiguous) {
+      reasons.push({ file: paths.inboxQuestions, key: q.key, reason: `related_ambiguous:${stem.slice(0, 20)}` })
+    }
+  }
+
+  const changed = report.added + report.merged + report.needsReview + report.orphaned > 0 || relatedTouched
   if (changed) await writeJsonl(paths.questions, next)
 
   report.terms = await commitTerms(paths, termDrafts, next, reasons, now)

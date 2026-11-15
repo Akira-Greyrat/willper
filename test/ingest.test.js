@@ -116,6 +116,44 @@ test('坏 JSON 行只丢那一行，其余照常入库', async () => {
   })
 })
 
+test('入库把关联题干换成题号', async () => {
+  await withTempStore(async paths => {
+    await writeJsonl(paths.inboxQuestions, [
+      draft({ related: { questions: ['什么是作用域？'], deeper: ['为什么闭包能记住外层变量？'] } }),
+      draft({ stem: '什么是作用域？', source: { file: 'materials/bank.md', page: 4, anchor: '什么是作用域' } }),
+    ])
+    const r = await commitInbox(paths, options())
+    const rows = await readJsonl(paths.questions)
+    const first = rows.find(row => row.stem.startsWith('什么是闭包'))
+    const second = rows.find(row => row.stem === '什么是作用域？')
+    assert.equal(r.added, 2)
+    assert.deepEqual(first.related.questions, [second.id])
+    assert.deepEqual(first.related.deeper, ['为什么闭包能记住外层变量？'])
+  })
+})
+
+test('指不到题干的关联被丢弃并记原因', async () => {
+  await withTempStore(async paths => {
+    await writeJsonl(paths.inboxQuestions, [draft({ related: { questions: ['完全不存在的题干'], deeper: [] } })])
+    const r = await commitInbox(paths, options())
+    const [row] = await readJsonl(paths.questions)
+    assert.deepEqual(row.related.questions, [])
+    assert.ok(r.reasons.some(entry => String(entry.reason).startsWith('related_unresolved:')))
+  })
+})
+
+test('待核对的题也保留关联网', async () => {
+  await withTempStore(async paths => {
+    await writeJsonl(paths.inboxQuestions, [
+      draft({ reference: {}, related: { questions: [], deeper: ['为什么？'], broader: [] } }),
+    ])
+    await commitInbox(paths, options())
+    const [row] = await readJsonl(paths.questions)
+    assert.equal(row.status, 'needs-review')
+    assert.deepEqual(row.related.deeper, ['为什么？'])
+  })
+})
+
 test('同一材料分批导入，前一批不会被判成孤儿', async () => {
   await withTempStore(async paths => {
     await writeJsonl(paths.inboxQuestions, [draft()])
