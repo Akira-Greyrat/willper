@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { treeView, queueView, questionView, checklistView, favoritesView } from '../learning-center/src/views.js'
+import { treeView, queueView, questionView, checklistView, favoritesView, weakView } from '../learning-center/src/views.js'
 
 const meta = {
   tree: [
@@ -122,4 +122,33 @@ test('空输入返回空集合而不是 undefined', () => {
   assert.deepEqual(queueView({ tree: [] }, [], {}, { offset: 0, limit: 5 }).items, [])
   assert.deepEqual(checklistView([]).items, [])
   assert.deepEqual(favoritesView([], {}).items, [])
+})
+
+test('题卡带最近一次作答，错题本按漏点排序', () => {
+  const questions = [q('q1'), q('q2')]
+  const progress = { q1: { misses: 2, lastScore: 0.5 }, q2: { misses: 3, lastScore: 0.4 } }
+  const card = questionView(questions, [], 'q1', progress, [
+    { id: 'a1', questionId: 'q1', at: 'T1', kind: 'study', grade: { score: 1 } },
+    { id: 'a2', questionId: 'q1', at: 'T2', kind: 'quiz', grade: { score: 0.5 } },
+  ])
+  assert.equal(card.lastAttempt.id, 'a2')
+  assert.equal(card.lastAttempt.kind, 'quiz')
+  const weak = weakView(questions, progress)
+  assert.deepEqual(weak.items.map(item => item.id), ['q2', 'q1'])
+  assert.equal(weak.items[0].misses, 3)
+})
+
+test('没有作答记录时 lastAttempt 是 null', () => {
+  const card = questionView([q('q1')], [], 'q1', {}, [])
+  assert.equal(card.lastAttempt, null)
+})
+
+test('移出的错题不出现在错题本', () => {
+  const weak = weakView([q('q1')], { q1: { misses: 2, dismissed: true } })
+  assert.deepEqual(weak.items, [])
+})
+
+test('没答过的题不进错题本', () => {
+  const weak = weakView([q('q1'), q('q2')], { q1: { seen: true } })
+  assert.deepEqual(weak.items, [])
 })

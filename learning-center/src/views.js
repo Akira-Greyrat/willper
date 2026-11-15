@@ -81,7 +81,7 @@ export function queueView(meta, questions, progress, options = {}) {
  * @param {object} [progress] - per-question progress.
  * @returns {object|null} the card, or null when the id is unknown.
  */
-export function questionView(questions, terms, id, progress = {}) {
+export function questionView(questions, terms, id, progress = {}, attempts = []) {
   const q = (questions ?? []).find(item => item.id === id)
   if (!q) return null
   const related = q.related ?? { questions: [], deeper: [], broader: [] }
@@ -90,6 +90,10 @@ export function questionView(questions, terms, id, progress = {}) {
     .map(relatedId => byId.get(relatedId))
     .filter(Boolean)
     .map(item => ({ id: item.id, stem: item.stem }))
+  const own = (attempts ?? []).filter(attempt => attempt.questionId === id)
+  const latest = own.length === 0
+    ? null
+    : own.reduce((newest, attempt) => (attempt.at > newest.at ? attempt : newest))
   return {
     id: q.id,
     stem: q.stem,
@@ -99,11 +103,43 @@ export function questionView(questions, terms, id, progress = {}) {
     tags: q.tags ?? [],
     related,
     relatedQuestions,
+    lastAttempt: latest
+      ? { id: latest.id, at: latest.at, kind: latest.kind, grade: latest.grade }
+      : null,
     favorite: Boolean(progress && progress[id] && progress[id].favorite),
     nodeId: q.nodeId,
     status: q.status,
     flags: q.flags ?? [],
   }
+}
+
+/**
+ * The weak-question list: questions practised and never fully covered, most
+ * missed first. A dismissed row stays out until it is dismissed again.
+ * @param {object[]} questions - the bank.
+ * @param {object} progress - per-question progress.
+ * @returns {{ items: object[] }} weak questions.
+ */
+export function weakView(questions, progress) {
+  const items = (questions ?? [])
+    .map(q => {
+      const entry = (progress && progress[q.id]) || {}
+      return {
+        id: q.id,
+        stem: q.stem,
+        nodeId: q.nodeId,
+        misses: entry.misses ?? 0,
+        lastScore: entry.lastScore ?? null,
+        lastAttemptAt: entry.lastAttemptAt ?? null,
+        dismissed: entry.dismissed === true,
+      }
+    })
+    .filter(item => item.misses > 0 && !item.dismissed)
+    .sort((a, b) => {
+      if (b.misses !== a.misses) return b.misses - a.misses
+      return String(b.lastAttemptAt ?? '').localeCompare(String(a.lastAttemptAt ?? ''))
+    })
+  return { items }
 }
 
 /**
