@@ -73,6 +73,7 @@
 - 真机：在 `learning/` 里放入两条带 `related` 的草稿并调用 `learning_import commit` → `新增 1、合并 1`。检查 `questions.jsonl`：可解析的题干换成了题号 `q_94e7275b`，指不到的题干被丢弃，`deeper`/`broader` 原样入库。
 - 路由：`POST /api/learning {op:"question", id:"q_70dd6b2b"}` 返回 `relatedQuestions: [{ id: "q_94e7275b", stem: "什么是闭包？它解决了什么问题？" }]`，`deeper` 为「闭包捕获的是变量还是值？」。
 - 待人工确认：卡片上三组 chip 的显示与点击、空关联网题目的「让 AI 补这题的关联网」入口。
+- 独立评审（range 654ff79..6d5ccb1）后修掉四条：重导同一材料不再清空已存关联网、只改 related 一栏不会清掉另外两栏、改题时丢弃的关联题干会随结果回传、点「刷新」不再把当前卡片换成队列第一题（只重取当前题）。测试 139 个全绿。
 
 ## 面板人工确认（2026-11-14 22:20 起，23:0x 收尾）
 
