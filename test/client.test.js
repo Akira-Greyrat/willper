@@ -353,3 +353,57 @@ test('错题本每行有再答一次与移出', async () => {
   walk(tree)
   assert.equal(buttons.length, 2)
 })
+test('打开未判完的题会回到等待态', async () => {
+  const { module } = await loadClient()
+  const stateOf = module.__test && module.__test.gradingStateFor
+  assert.equal(typeof stateOf, 'function')
+  assert.deepEqual(stateOf({ lastAttempt: { id: 'a1', grade: null } }), { grading: 'waiting', pendingAttemptId: 'a1' })
+  assert.deepEqual(stateOf({ lastAttempt: { id: 'a1', grade: { score: 1 } } }), { grading: 'idle', pendingAttemptId: null })
+  assert.deepEqual(stateOf(null), { grading: 'idle', pendingAttemptId: null })
+})
+
+test('轮询结果只作用于当前 attempt', async () => {
+  const { module } = await loadClient()
+  const still = module.__test && module.__test.stillPending
+  assert.equal(typeof still, 'function')
+  assert.equal(still({ attemptId: 'a1', questionId: 'q1' }, 'a1'), true)
+  assert.equal(still({ attemptId: 'a1', questionId: 'q1' }, 'a2'), false)
+  assert.equal(still(null, 'a1'), false)
+})
+
+test('补充答案在展开参考答案之后才出现', async () => {
+  const { module } = await loadClient()
+  const Card = module.__test && module.__test.QuestionCard
+  assert.equal(typeof Card, 'function')
+  const card = {
+    id: 'q1', stem: '题干', termHits: [], favorite: false, source: {},
+    reference: { answer: '标准', points: ['a'], supplement: '面试里我会这样讲' },
+    related: { questions: [], deeper: [], broader: [] }, relatedQuestions: [],
+  }
+  const t = key => key
+  const closed = JSON.stringify(Card({ card, t, shownSeen: 0, shownTotal: 1, answerOpen: false, onToggleAnswer() {}, onPickTerm() {}, onNext() {}, onPrev() {}, onFavorite() {}, onRevisit() {}, revisit: false }))
+  const opened = JSON.stringify(Card({ card, t, shownSeen: 0, shownTotal: 1, answerOpen: true, onToggleAnswer() {}, onPickTerm() {}, onNext() {}, onPrev() {}, onFavorite() {}, onRevisit() {}, revisit: false }))
+  assert.ok(!closed.includes('面试里我会这样讲'))
+  assert.ok(opened.includes('面试里我会这样讲'))
+})
+
+test('没有要点的抽查卡不能提交', async () => {
+  const { module } = await loadClient()
+  const Modal = module.__test.QuizModal
+  assert.equal(typeof Modal, 'function')
+  const base = { card: { id: 'q1', stem: '题干' }, t: key => key, answer: '有内容', onAnswer() {}, grading: 'idle', gradeAttempt: null, onSubmit() {}, onSkip() {}, onMute() {} }
+  const buttons = []
+  const walk = node => {
+    if (Array.isArray(node)) { for (const item of node) walk(item); return }
+    if (!node || typeof node !== 'object') return
+    if (node.type === 'button') buttons.push(node)
+    for (const child of node.children ?? []) walk(child)
+  }
+  walk(Modal({ ...base, points: [] }))
+  const submit = buttons.find(button => JSON.stringify(button).includes('submitGrade'))
+  assert.equal(submit.props.disabled, true)
+  buttons.length = 0
+  walk(Modal({ ...base, points: ['a'] }))
+  const enabled = buttons.find(button => JSON.stringify(button).includes('submitGrade'))
+  assert.equal(enabled.props.disabled, false)
+})

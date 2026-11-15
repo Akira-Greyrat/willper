@@ -70,6 +70,7 @@ window.__ModuleLoader__.load({
       quizTitle: '先答一道再走',
       quizSkip: '跳过',
       quizMute: '本轮不再提醒',
+      weak: '错题',
       weakTitle: '错题',
       weakEmpty: '还没有错题，先去过几道题。',
       weakMisses: '漏点',
@@ -160,6 +161,7 @@ window.__ModuleLoader__.load({
       quizTitle: 'Answer one before you go',
       quizSkip: 'Skip',
       quizMute: 'Stop asking this round',
+      weak: 'Weak',
       weakTitle: 'Weak questions',
       weakEmpty: 'No weak questions yet — read a few first.',
       weakMisses: 'Missed',
@@ -475,7 +477,7 @@ window.__ModuleLoader__.load({
      * @param {object} props - component props.
      * @returns {object} React node.
      */
-    function QuestionCard({ card, t, shownSeen, shownTotal, answerOpen, openTerm, onToggleAnswer, onPickTerm, onNext, onPrev, canPrev, onFavorite, onRevisit, revisit }) {
+    function QuestionCard({ card, t, shownSeen, shownTotal, answerOpen, openTerm, onToggleAnswer, onPickTerm, onNext, onPrev, canPrev, onFavorite, onRevisit, revisit, onFillSupplement }) {
       return h('div', { className: 'lc-card' },
         h(StemView, { stem: card.stem, termHits: card.termHits, onPick: onPickTerm, picked: openTerm }),
         h('div', { className: 'lc-actions' },
@@ -489,7 +491,8 @@ window.__ModuleLoader__.load({
             card.reference.answer || '',
             card.reference.points && card.reference.points.length > 0
               ? h('ul', { className: 'lc-points' }, card.reference.points.map((point, index) => h('li', { key: index }, point)))
-              : null)
+              : null,
+            h(SupplementBlock, { reference: card.reference, t, onFill: onFillSupplement }))
           : null,
         h('div', { className: 'lc-meta' },
           h('span', null, t('seenCount').replace('%s', String(shownSeen)).replace('%s', String(shownTotal))),
@@ -526,6 +529,7 @@ window.__ModuleLoader__.load({
       const [grading, setGrading] = useState('idle')
       const [gradedAttempt, setGradedAttempt] = useState(null)
       const [pendingAttemptId, setPendingAttemptId] = useState(null)
+      const pendingRef = useRef(null)
       const [quiz, setQuiz] = useState(null)
       const [quizAnswer, setQuizAnswer] = useState('')
       const [quizGrading, setQuizGrading] = useState('idle')
@@ -768,6 +772,7 @@ window.__ModuleLoader__.load({
 
       /** Poll one attempt until it has a grade, then store it for its surface. */
       const pollAttempt = useCallback((attemptId, tries, mode) => {
+        if (!stillPending(pendingRef.current, attemptId)) return
         if (tries >= 45) {
           if (mode === 'quiz') setQuizGrading('timeout')
           else setGrading('timeout')
@@ -775,8 +780,10 @@ window.__ModuleLoader__.load({
         }
         setTimeout(async () => {
           if (!sessionId) return
+          if (!stillPending(pendingRef.current, attemptId)) return
           try {
             const got = await request('attempt', { action: 'get', attemptId }, sessionId)
+            if (!stillPending(pendingRef.current, attemptId)) return
             if (got.attempt && got.attempt.grade) {
               if (mode === 'quiz') {
                 setQuizAttempt(got.attempt)
@@ -785,6 +792,7 @@ window.__ModuleLoader__.load({
                 setGradedAttempt(got.attempt)
                 setGrading('done')
               }
+              pendingRef.current = null
               return
             }
             pollAttempt(attemptId, tries + 1, mode)
@@ -803,6 +811,7 @@ window.__ModuleLoader__.load({
         try {
           const started = await request('attempt', { action: 'start', questionId: card.id, answer: text, kind: 'study' }, sessionId)
           setPendingAttemptId(started.attemptId)
+          pendingRef.current = { attemptId: started.attemptId, questionId: card.id }
           await ask(`批改答题 ${started.attemptId}：先 learning_grade open 取题与答案，再 submit 写回 covered/missed/wrong/feedback/suggestion（命中率低于 0.6 时必给 suggestion）。`)
           pollAttempt(started.attemptId, 0, 'study')
         } catch (err) {
@@ -823,11 +832,13 @@ window.__ModuleLoader__.load({
 
       const submitQuiz = useCallback(async () => {
         if (!sessionId || !quiz) return
+        if (!Array.isArray(quiz.points) || quiz.points.length === 0) return
         const text = quizAnswer.trim()
         if (text.length === 0) return
         setQuizGrading('waiting')
         try {
           const started = await request('attempt', { action: 'start', questionId: quiz.id, answer: text, kind: 'quiz' }, sessionId)
+          pendingRef.current = { attemptId: started.attemptId, questionId: quiz.id }
           await ask(`批改答题 ${started.attemptId}：先 learning_grade open 取题与答案，再 submit 写回 covered/missed/wrong/feedback/suggestion（命中率低于 0.6 时必给 suggestion）。`)
           pollAttempt(started.attemptId, 0, 'quiz')
         } catch (err) {
@@ -837,10 +848,22 @@ window.__ModuleLoader__.load({
       }, [sessionId, quiz, quizAnswer, ask, pollAttempt, fail])
 
       const closeQuiz = useCallback(() => {
+        pendingRef.current = null
         setQuiz(null)
         setQuizGrading('idle')
         setQuizAttempt(null)
       }, [])
+
+      const retryQuiz = useCallback(() => {
+        const pending = pendingRef.current
+        if (!pending) {
+          setQuizGrading('idle')
+          return
+        }
+        setQuizGrading('waiting')
+        ask(`批改答题 ${pending.attemptId}：用 learning_grade open 取题与答案，再用 submit 写回覆盖/漏点/说错/反馈/优化答案。`)
+        pollAttempt(pending.attemptId, 0, 'quiz')
+      }, [ask, pollAttempt])
 
       const loadWeak = useCallback(async () => {
         if (!sessionId) return
@@ -873,9 +896,19 @@ window.__ModuleLoader__.load({
 
       useEffect(() => {
         setAnswer('')
-        setGrading('idle')
         setGradedAttempt(null)
-        setPendingAttemptId(null)
+        // A card whose newest attempt has no grade yet is still being graded
+        // (the learner may have reloaded mid-wait): resume the poll there.
+        const state = gradingStateFor(card)
+        setGrading(state.grading)
+        setPendingAttemptId(state.pendingAttemptId)
+        pendingRef.current = state.pendingAttemptId && card
+          ? { attemptId: state.pendingAttemptId, questionId: card.id }
+          : null
+        if (state.pendingAttemptId) pollAttempt(state.pendingAttemptId, 0, 'study')
+        // Intentionally keyed on the card identity only: re-running on every
+        // callback identity would restart the poll on unrelated renders.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
       }, [card && card.id])
 
       const toggleFavorite = useCallback(async () => {
@@ -1038,6 +1071,7 @@ window.__ModuleLoader__.load({
               onPrev: prevQuestion,
               onRevisit: toggleRevisit,
               onFavorite: toggleFavorite,
+              onFillSupplement: fillSupplement,
             }),
             h(AnswerCard, {
               card,
@@ -1117,12 +1151,14 @@ window.__ModuleLoader__.load({
           ? h(QuizModal, {
             card: quiz,
             t,
+            points: quiz.points,
             answer: quizAnswer,
             onAnswer: setQuizAnswer,
             grading: quizGrading,
             gradeAttempt: quizAttempt,
             onSubmit: submitQuiz,
             onSkip: closeQuiz,
+            onRetry: retryQuiz,
             onMute: () => {
               setMuted(true)
               closeQuiz()
@@ -1224,6 +1260,28 @@ window.__ModuleLoader__.load({
     }
 
     /**
+     * What grading state a freshly opened card starts in: a newest attempt that
+     * has not been graded yet means the reader should see "grading…" and the
+     * poll should resume.
+     * @param {object|null} card - question card.
+     * @returns {{grading: string, pendingAttemptId: string|null}} initial state.
+     */
+    function gradingStateFor(card) {
+      const last = card && card.lastAttempt
+      if (last && !last.grade) return { grading: 'waiting', pendingAttemptId: last.id }
+      return { grading: 'idle', pendingAttemptId: null }
+    }
+
+    /**
+     * @param {{attemptId: string}|null} pending - the attempt the surface is waiting for.
+     * @param {string} attemptId - the attempt a poll just resolved.
+     * @returns {boolean} whether the result still belongs on screen.
+     */
+    function stillPending(pending, attemptId) {
+      return Boolean(pending && pending.attemptId === attemptId)
+    }
+
+    /**
      * Whether a card can be graded: there must be key points to grade against.
      * @param {object} card - question card.
      * @returns {boolean} whether the submit control is allowed.
@@ -1306,8 +1364,7 @@ window.__ModuleLoader__.load({
             : null),
         hasPoints ? null : h('p', { className: 'lc-node-sub' }, t('noPoints')),
         grading === 'timeout' ? h('p', { className: 'lc-node-sub' }, t('gradingTimeout')) : null,
-        gradeAttempt ? h(GradeBlock, { attempt: gradeAttempt, t }) : null,
-        h(SupplementBlock, { reference: card.reference, t, onFill: onFillSupplement }))
+        gradeAttempt ? h(GradeBlock, { attempt: gradeAttempt, t }) : null)
     }
 
     /**
@@ -1315,7 +1372,8 @@ window.__ModuleLoader__.load({
      * @param {object} props - component props.
      * @returns {object} React node.
      */
-    function QuizModal({ card, t, answer, onAnswer, grading, gradeAttempt, onSubmit, onSkip, onMute }) {
+    function QuizModal({ card, t, points, answer, onAnswer, grading, gradeAttempt, onSubmit, onSkip, onMute, onRetry }) {
+      const hasPoints = Array.isArray(points) && points.length > 0
       return h('div', { className: 'lc-backdrop' },
         h('div', { className: 'lc-modal' },
           h('h2', { className: 'lc-cardTitle' }, t('quizTitle')),
@@ -1331,12 +1389,24 @@ window.__ModuleLoader__.load({
             h('button', {
               type: 'button',
               className: 'lc-btn lc-btn-primary',
-              disabled: answer.trim().length === 0 || grading === 'waiting',
+              disabled: !hasPoints || answer.trim().length === 0 || grading === 'waiting',
               onClick: onSubmit,
             }, t('submitGrade')),
             h('button', { type: 'button', className: 'lc-btn', onClick: onSkip }, t('quizSkip')),
-            h('button', { type: 'button', className: 'lc-btn', onClick: onMute }, t('quizMute'))),
+            h('button', {
+              type: 'button',
+              className: 'lc-btn',
+              onClick: () => {
+                onMute()
+              },
+            }, t('quizMute'))),
+          hasPoints ? null : h('p', { className: 'lc-node-sub' }, t('noPoints')),
           grading === 'waiting' ? h('p', { className: 'lc-node-sub' }, t('gradingWait')) : null,
+          grading === 'timeout'
+            ? h('div', { className: 'lc-actions' },
+              h('span', { className: 'lc-node-sub' }, t('gradingTimeout')),
+              h('button', { type: 'button', className: 'lc-btn', onClick: onRetry }, t('retryGrade')))
+            : null,
           gradeAttempt ? h(GradeBlock, { attempt: gradeAttempt, t }) : null))
     }
 
@@ -1432,7 +1502,7 @@ window.__ModuleLoader__.load({
         }, props => h(PanelBoundary, { t }, h(Panel, { ...props, layout, t }))))
       },
       /** Rendered-only internals, exposed so the node harness can exercise them. */
-      __test: { PanelBoundary, popoverStyle, Icon, TermPopover, isOutsidePopover, TERM_ACCENT, RelatedChips, GradeBlock, canSubmit, QuizModal, WeakList },
+      __test: { PanelBoundary, popoverStyle, Icon, TermPopover, isOutsidePopover, TERM_ACCENT, RelatedChips, GradeBlock, canSubmit, QuizModal, WeakList, QuestionCard, SupplementBlock, gradingStateFor, stillPending },
     }
   },
 })

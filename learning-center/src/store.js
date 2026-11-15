@@ -270,13 +270,20 @@ export function createStore(baseDir, rawConfig) {
     if (Math.random() >= (settings.leavePromptRate ?? 0.15)) return null
     const questions = await readJsonl(paths.questions)
     const progress = await readJson(paths.progress, {})
-    const items = weakView(questions, progress).items
+    const byId = new Map(questions.map(question => [question.id, question]))
+    // A question without key points cannot be graded, so it must never be the
+    // card the quiz asks the learner to answer.
+    const items = weakView(questions, progress).items.filter(item => {
+      const question = byId.get(item.id)
+      return question && question.reference && Array.isArray(question.reference.points)
+        && question.reference.points.length > 0
+    })
     if (items.length === 0) return null
     const pool = items.slice(0, 10)
     const pick = pool[Math.floor(Math.random() * pool.length)]
     meta.settings = { ...settings, lastQuizAt: now }
     await writeJson(paths.meta, meta)
-    return { id: pick.id, stem: pick.stem }
+    return { id: pick.id, stem: pick.stem, points: byId.get(pick.id).reference.points }
   }
 
   /**

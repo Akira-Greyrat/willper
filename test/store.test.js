@@ -275,3 +275,19 @@ test('setDismissed 与 saveSettings 只动指定键', async () => {
     assert.equal(after.leavePromptRate, before.leavePromptRate)
   })
 })
+test('抽查不会抽到没有要点的题', async () => {
+  await withStore(async store => {
+    await writeJsonl(store.paths.questions, [{
+      id: 'q1', key: 'k1', stem: '没有要点的题', nodeId: 'n_1', status: 'ok', flags: [],
+      reference: { answer: 'a', points: [] }, source: { file: 'm.md' }, tags: [],
+      related: { questions: [], deeper: [], broader: [] }, createdAt: 'T0', updatedAt: 'T0',
+    }])
+    const attempt = await store.createAttempt({ questionId: 'q1', answer: 'x', kind: 'study' })
+    await store.gradeAttempt(attempt.id, { covered: [], missed: ['a'] })
+    const meta = (await store.load()).meta
+    meta.settings.leavePromptRate = 1
+    meta.settings.quizCooldownMinutes = 0
+    await store.saveMeta(meta)
+    assert.equal(await store.sampleQuiz(), null)
+  })
+})
