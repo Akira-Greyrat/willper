@@ -185,7 +185,8 @@ async function dispatch(op, params, sessionId, store, promptAgent, listSessions)
       return { ok: true, question: await store.setStatus(params.id, params.status) }
     }
     case 'updateQuestion': {
-      return { ok: true, question: await store.updateQuestion(params.id, params.patch) }
+      const result = await store.updateQuestion(params.id, params.patch)
+      return { ok: true, question: result.question, relatedDropped: result.relatedDropped }
     }
     case 'prompt': {
       if (typeof params.text !== 'string' || params.text.trim().length === 0) {

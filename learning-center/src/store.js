@@ -118,10 +118,15 @@ export function createStore(baseDir, rawConfig) {
     if (index === -1) throw new Error(`unknown question: ${id}`)
     const current = questions[index]
     const next = validatePatch(current, patch ?? {}, { nodeIds: await nodeIds() })
+    const relatedDropped = []
     if (patch && patch.related !== undefined) {
-      const normalized = normalizeRelated(patch.related)
-      const { ids } = resolveRelatedIds(questions, normalized.questions)
+      // A patch may name only one of the three lists; the others keep their
+      // current values. `normalizeRelated` then caps lengths and de-dupes.
+      const normalized = normalizeRelated({ ...(current.related ?? {}), ...(patch.related ?? {}) })
+      const { ids, missing, ambiguous } = resolveRelatedIds(questions, normalized.questions)
       next.related = { questions: ids, deeper: normalized.deeper, broader: normalized.broader }
+      for (const stem of missing) relatedDropped.push(`related_unresolved:${stem.slice(0, 20)}`)
+      for (const stem of ambiguous) relatedDropped.push(`related_ambiguous:${stem.slice(0, 20)}`)
     }
     if (next.stem !== current.stem) {
       const newKey = questionKey(current.source && current.source.file ? current.source.file : '', next.stem)
@@ -134,7 +139,7 @@ export function createStore(baseDir, rawConfig) {
     next.updatedAt = new Date().toISOString()
     questions[index] = next
     await writeJsonl(paths.questions, questions)
-    return next
+    return { question: next, relatedDropped }
   }
 
   /**

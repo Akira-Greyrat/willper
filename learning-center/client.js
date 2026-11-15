@@ -560,14 +560,23 @@ window.__ModuleLoader__.load({
           await loadBasics(sessionId)
           if (tab === 'bank') setChecklist(await request('checklist', {}, sessionId))
           if (tab === 'favorite') setFavorites(await request('favorites', {}, sessionId))
-          if (tab === 'study') await loadQueue(sessionId, nodeId, revisit)
+          if (tab === 'study') {
+            // Keep the reader where they were: refresh the open card, only fall
+            // back to the queue head when no card is open.
+            if (card) {
+              const detail = await request('question', { id: card.id }, sessionId)
+              if (detail.question) setCard(detail.question)
+            } else {
+              await loadQueue(sessionId, nodeId, revisit)
+            }
+          }
           setError(null)
         } catch (err) {
           fail(err)
         } finally {
           setBusy(false)
         }
-      }, [sessionId, tab, nodeId, loadBasics, loadQueue, fail])
+      }, [sessionId, tab, nodeId, revisit, card, loadBasics, loadQueue, fail])
 
       const saveTarget = useCallback(async form => {
         if (!sessionId) return

@@ -77,7 +77,7 @@ test('改题干会重算指纹并记住旧指纹', async () => {
       reference: { answer: 'a', points: [] }, source: { file: 'm.md', page: 1, anchor: 'a', hasImage: false },
       tags: [], related: { questions: [], deeper: [], broader: [] }, createdAt: 'T0', updatedAt: 'T0',
     }])
-    const next = await store.updateQuestion('q_1', { stem: '换了一个更好的题干？' })
+    const { question: next } = await store.updateQuestion('q_1', { stem: '换了一个更好的题干？' })
     assert.notEqual(next.key, 'k1')
     assert.deepEqual(next.previousKeys, ['k1'])
     assert.equal(next.id, 'q_1')
@@ -116,10 +116,47 @@ test('updateQuestion 写 related 时把题干解析成题号', async () => {
         tags: [], related: { questions: [], deeper: [], broader: [] }, createdAt: 'T0', updatedAt: 'T0',
       },
     ])
-    const next = await store.updateQuestion('q_1', { related: { questions: ['什么是作用域？'], deeper: ['为什么？'] } })
+    const { question: next } = await store.updateQuestion('q_1', { related: { questions: ['什么是作用域？'], deeper: ['为什么？'] } })
     assert.deepEqual(next.related.questions, ['q_2'])
     assert.deepEqual(next.related.deeper, ['为什么？'])
     await assert.rejects(() => store.updateQuestion('q_1', { related: null }), /invalid related/)
+  })
+})
+
+test('只改 related 的一栏时不动另外两栏', async () => {
+  await withStore(async store => {
+    await writeJsonl(store.paths.questions, [
+      {
+        id: 'q_1', key: 'k1', stem: '什么是闭包？', nodeId: 'n_1', status: 'ok', flags: [],
+        reference: { answer: 'a', points: [] }, source: { file: 'm.md', page: 1, anchor: 'a', hasImage: false },
+        tags: [], related: { questions: ['q_2'], deeper: ['深一'], broader: ['宽一'] }, createdAt: 'T0', updatedAt: 'T0',
+      },
+      {
+        id: 'q_2', key: 'k2', stem: '什么是作用域？', nodeId: 'n_1', status: 'ok', flags: [],
+        reference: { answer: 'b', points: [] }, source: { file: 'm.md', page: 2, anchor: 'b', hasImage: false },
+        tags: [], related: { questions: [], deeper: [], broader: [] }, createdAt: 'T0', updatedAt: 'T0',
+      },
+    ])
+    const result = await store.updateQuestion('q_1', { related: { deeper: ['深二'] } })
+    assert.deepEqual(result.question.related.deeper, ['深二'])
+    assert.deepEqual(result.question.related.questions, ['q_2'])
+    assert.deepEqual(result.question.related.broader, ['宽一'])
+  })
+})
+
+test('updateQuestion 报告被丢弃的关联题干', async () => {
+  await withStore(async store => {
+    await writeJsonl(store.paths.questions, [
+      {
+        id: 'q_1', key: 'k1', stem: '什么是闭包？', nodeId: 'n_1', status: 'ok', flags: [],
+        reference: { answer: 'a', points: [] }, source: { file: 'm.md', page: 1, anchor: 'a', hasImage: false },
+        tags: [], related: { questions: [], deeper: [], broader: [] }, createdAt: 'T0', updatedAt: 'T0',
+      },
+    ])
+    const result = await store.updateQuestion('q_1', { related: { questions: ['不存在的题干'], deeper: [], broader: [] } })
+    assert.deepEqual(result.question.related.questions, [])
+    assert.equal(result.relatedDropped.length, 1)
+    assert.match(result.relatedDropped[0], /^related_unresolved:/)
   })
 })
 

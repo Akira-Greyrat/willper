@@ -113,8 +113,10 @@ export async function commitInbox(paths, options) {
       continue
     }
     // Cross-references arrive as stems; ids are minted here, so they are resolved
-    // once the whole batch is in the bank (below).
-    q.related = normalizeRelated(raw.related)
+    // once the whole batch is in the bank (below). A draft that omits the key keeps
+    // whatever is already stored: the brief makes `related` optional, and a
+    // re-import must not erase a block the learner asked the agent to fill.
+    if (Object.hasOwn(raw, 'related')) q.related = normalizeRelated(raw.related)
 
     const previous = bank.get(q.key) ?? byPreviousKey.get(q.key)
     const duplicateOwner = stemIndex.get(dedupeKey(q.stem))
@@ -140,6 +142,7 @@ export async function commitInbox(paths, options) {
       previousKeys.delete(q.key)
       bank.set(q.key, {
         ...q,
+        related: Object.hasOwn(raw, 'related') ? q.related : (previous.related ?? q.related),
         id: previous.id,
         createdAt: previous.createdAt,
         updatedAt: now,

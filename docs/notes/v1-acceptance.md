@@ -1,4 +1,4 @@
-﻿# 学习中心 v1 · 端到端验收记录
+# 学习中心 v1 · 端到端验收记录
 
 日期：2026-11-14
 环境：DSH Desktop 0.2.2-rc.3，工作目录 `D:\Struggle\Workspace\willper`

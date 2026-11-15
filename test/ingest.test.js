@@ -154,6 +154,32 @@ test('待核对的题也保留关联网', async () => {
   })
 })
 
+test('重导同一份材料不会清掉已存的关联网', async () => {
+  await withTempStore(async paths => {
+    await writeJsonl(paths.inboxQuestions, [draft({ related: { questions: [], deeper: ['为什么？'], broader: [] } })])
+    await commitInbox(paths, options())
+    const before = await readJsonl(paths.questions)
+    assert.deepEqual(before[0].related.deeper, ['为什么？'])
+
+    await writeJsonl(paths.inboxQuestions, [draft()])
+    const r = await commitInbox(paths, options())
+    assert.equal(r.merged, 1)
+    const [row] = await readJsonl(paths.questions)
+    assert.deepEqual(row.related.deeper, ['为什么？'])
+  })
+})
+
+test('撞车的题干在 reasons 里记 related_ambiguous', async () => {
+  await withTempStore(async paths => {
+    await writeJsonl(paths.inboxQuestions, [
+      draft({ related: { questions: ['什么是闭包'], deeper: [], broader: [] } }),
+      draft({ stem: '什么是闭包?', source: { file: 'materials/bank.md', page: 2, anchor: '什么是闭包' } }),
+    ])
+    const r = await commitInbox(paths, options())
+    assert.ok(r.reasons.some(entry => String(entry.reason).startsWith('related_ambiguous:')), JSON.stringify(r.reasons))
+  })
+})
+
 test('同一材料分批导入，前一批不会被判成孤儿', async () => {
   await withTempStore(async paths => {
     await writeJsonl(paths.inboxQuestions, [draft()])

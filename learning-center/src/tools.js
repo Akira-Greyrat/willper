@@ -194,8 +194,10 @@ export function toolDefinitions(storeFor) {
     async execute(args, exec) {
       const store = await storeFor(exec.agent)
       switch (args.action) {
-        case 'update':
-          return { ok: true, question: await store.updateQuestion(args.id, args.patch ?? {}) }
+        case 'update': {
+          const result = await store.updateQuestion(args.id, args.patch ?? {})
+          return { ok: true, question: result.question, relatedDropped: result.relatedDropped }
+        }
         case 'accept':
           return { ok: true, question: await store.setStatus(args.id, 'ok') }
         case 'reject':
