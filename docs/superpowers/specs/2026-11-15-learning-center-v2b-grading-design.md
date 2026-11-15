@@ -63,6 +63,7 @@
     "missed": ["用于私有化/状态保持"],
     "wrong": ["「闭包就是立即执行函数」"],
     "feedback": "……",
+    "suggestion": "优化版本：闭包是函数与它定义时所在词法环境的组合……",
     "score": 0.5,
     "grader": "ai",
     "at": "2026-11-15T19:40:12.000Z"
@@ -83,15 +84,16 @@
 | 工具 | 参数 | 返回 |
 | --- | --- | --- |
 | `learning_grade` `open` | `{ action: 'open', attemptId }` | `{ question: { id, stem, answer, points }, attempt: { id, kind, answer, at } }` |
-| `learning_grade` `submit` | `{ action: 'submit', attemptId, covered: string[], missed: string[], wrong: string[], feedback }` | `{ ok, score, misses }` |
+| `learning_grade` `submit` | `{ action: 'submit', attemptId, covered: string[], missed: string[], wrong: string[], feedback, suggestion }` | `{ ok, score, misses }` |
 
 `submit` 的校验（不过就整条拒绝、不写库）：
 
-- `covered` / `missed` 的元素必须**逐字**是 `reference.points` 里的条目；
-- 两者并集必须等于全部要点、交集为空——漏写的要点按"漏"算，不允许悄悄少判；
-- `wrong` 与 `feedback` 是自由文本，可以为空。
+- `covered` / `missed` / `wrong` 是字符串数组，元素非空；**允许转述**，不要求和 `reference.points` 逐字一致；
+- `covered` 与 `missed` 至少一个非空（否则没法算分）；
+- `feedback` 是自由文本，可以空；
+- `suggestion` 是"优化版本的答案"：自由文本，可以空；由模型在**命中率偏低**时给出。
 
-`score = covered / (covered + missed)`；`covered + missed` 为空时 `score = null`，不进错题本。
+`score = covered / (covered + missed)`；两者都为空时拒绝。**命中率低于 0.6 时，模型应当给出 `suggestion`**（这也是提示词里明确要求的）。
 
 **重判是幂等的**：同一条 attempt 再提交一次判分，覆盖旧 `grade`，`progress.misses` 按差值调整（旧的不满分 −1、新的不满分 +1），不重复累加。
 
@@ -124,7 +126,7 @@
 
 - 点「提交并批改」：先把答案落盘（`attempt start`），再发一条**短消息**进会话：`批改答题 a_7f3c2a：先 learning_grade open 取题与答案，再 submit 写回覆盖/漏点/说错`。会话里只留这一行与 agent 的简短回复，详细的覆盖结果在面板上。
 - 面板每 2 秒拉一次 `attempt get`，拿到 `grade` 就停；90 秒仍未判完就停轮询并显示「AI 还没批完，点重试会再发一次批改请求」。**重试是重发消息**，不是重取——模型没调工具时重取没有意义；`submit` 幂等，所以重发不会把 misses 记两遍。
-- 判完显示：命中/漏掉/说错的要点 + 反馈；同一张卡可以"再答一次"（生成新 attempt）。
+- 判完显示：命中/漏掉/说错的要点 + 反馈；**命中率低于 0.6 时再显示一段"优化版本的答案"**（`suggestion`）。同一张卡可以"再答一次"（生成新 attempt）。
 - 打开一张以前答过的题时，卡片直接显示 `lastAttempt.grade`（判分迟到也补得回来）。
 - 没有要点的题（`reference.points` 为空）：提交按钮禁用，提示"这题没有要点，无法按要点批改"。
 
@@ -132,7 +134,7 @@
 
 - 触发：切到另一题、切页签、或点「下一题」，且 `meta.settings.leavePromptRate` 命中、距上次抽查超过 `quizCooldownMinutes`。
 - 选题：`weak` 里没被 dismissed、已读、按 misses 降序取前 10，随机一个。
-- 交互：弹一张卡「先答一道再走」→ 答 → 提交并批改（同上轮询）；或「跳过」「本轮不再提醒」。
+- 交互：弹一张卡「先答一道再走」，卡上**直接有答题框**——写完点「提交并批改」，就地等 AI 反馈（同一套轮询，卡上显示"批改中…"），反馈也显示在卡上（命中/漏点/说错，命中率低于 0.6 时附优化答案）；另有「跳过」「本轮不再提醒」。
 - 抽查作答 `kind: 'quiz'`，`misses` 照常累加。
 
 **错题本页**
@@ -146,16 +148,19 @@
 1. 无要点题：提交按钮禁用并有说明。
 2. 有要点题：提交后先出现「批改中」，AI 判完 90 秒内出现命中/漏点/说错与反馈；面板显示与 `attempts.jsonl` 里的 `grade` 一致。
 3. 同一题再答一次会新增一行 attempt，`progress.misses` 跟着累加。
-4. 抽查：把 `leavePromptRate` 临时设为 1、冷却 0，切题必弹；答完同样自动判；点跳过不产生 attempt，但 `settings.lastQuizAt` 已更新（跳过后进入冷却）。
-5. 错题本：答过没满分的题出现在列表里，按 misses 降序；移出后不再出现，但 `attempts.jsonl` 里的记录还在。
-6. 判分迟到：提交后立刻切到别的题，等 AI 判完再切回，卡片上应显示这次的判分结果。
-7. 重试：对同一条 attempt 再发一次批改请求并 `submit`，`progress.misses` 不重复累加。
-8. `node --test` 全绿，`scripts/check-package.mjs` 通过。
+4. 抽查：把 `leavePromptRate` 临时设为 1、冷却 0，切题必弹；卡上直接写答案并提交，等待中显示「批改中…」，判完在卡上看到命中/漏点/说错；点跳过不产生 attempt，但 `settings.lastQuizAt` 已更新（跳过后进入冷却）。
+5. 低分给优化答案：答得明显不全（命中率 < 0.6）时，反馈里出现「优化版本的答案」；答得好时不出现。
+6. 转述可接受：`covered`/`missed` 写的是转述、与 `reference.points` 字面不同，也能正常判分入库。
+7. 错题本：答过没满分的题出现在列表里，按 misses 降序；移出后不再出现，但 `attempts.jsonl` 里的记录还在。
+8. 判分迟到：提交后立刻切到别的题，等 AI 判完再切回，卡片上应显示这次的判分结果。
+9. 重试：对同一条 attempt 再发一次批改请求并 `submit`，`progress.misses` 不重复累加。
+10. `node --test` 全绿，`scripts/check-package.mjs` 通过。
 
 ## 九、风险
 
 - **聊天噪音**：每题一轮。缓解：发进会话的消息只有一行、指示 agent 简短回复；详细结果在面板。
-- **判分依赖 agent 自觉调工具**：如果模型不调 `learning_grade`，面板会一直"批改中"到超时。缓解：消息里写明工具名与参数；超时提示可重试；不改库。
+- **判分依赖 agent 自觉调工具**：如果模型不调 `learning_grade`，面板会一直"批改中"到超时。缓解：消息里写明工具名与参数；超时后给「重试」（重发消息）；不改库。
+- **判分时等一轮对话**：每题都要等 AI 回完。面板用"批改中…"把等待说清楚，不假装立刻有结果。
 - **轮询开销**：每 2 秒一次 `attempt get`，最多 45 次；单机文件读，可接受。
 
 ## 十、留给 builder 的决定
