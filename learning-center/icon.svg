@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="Learning center">
+  <g fill="none" stroke="#2f6f4f" stroke-width="4" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M8 16h18a6 6 0 0 1 6 6v26a5 5 0 0 0-5-5H8z"/>
+    <path d="M56 16H38a6 6 0 0 0-6 6v26a5 5 0 0 1 5-5h19z"/>
+    <path d="M22 29h8M22 37h8"/>
+  </g>
+  <path d="M34 44l6 6 12-14" fill="none" stroke="#c9762b" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

@@ -1,0 +1,12 @@
+{
+  "meta": {
+    "title": "Learning center",
+    "description": "Turns a bank of open questions into study material you work through by topic: import, classify, flag what did not parse cleanly, and let the session AI split topics and grade answers.",
+    "detail": "docs/DETAIL.md"
+  },
+  "panel": {
+    "title": "Learning center",
+    "empty": "No learning target yet",
+    "emptyHint": "Write your goal and current level, then ask the AI for the topic tree."
+  }
+}
