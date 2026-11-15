@@ -510,3 +510,26 @@ test('补充答案可以就地编辑并保存', async () => {
   walk(view)
   assert.equal(buttons.length, 1)
 })
+test('标准答案可以就地编辑，要点按行拆开', async () => {
+  const { module } = await loadClient()
+  const Block = module.__test.ReferenceBlock
+  const patchOf = module.__test.referencePatch
+  assert.equal(typeof Block, 'function')
+  assert.equal(typeof patchOf, 'function')
+
+  const base = { reference: { answer: '旧答案', points: ['要点甲', '要点乙'], supplement: '' }, t: key => key, answerDraft: '', pointsDraft: '', onEdit() {}, onAnswer() {}, onPoints() {}, onSave() {}, onCancel() {} }
+  const view = Block({ ...base, editing: false })
+  const text = JSON.stringify(view)
+  assert.ok(text.includes('旧答案'))
+  assert.ok(text.includes('要点甲'))
+  assert.ok(text.includes('edit'))
+
+  const editing = Block({ ...base, editing: true, answerDraft: '新答案', pointsDraft: '要点一\n\n 要点二 ' })
+  const editingText = JSON.stringify(editing)
+  assert.ok(editingText.includes('新答案'))
+  assert.ok(editingText.includes('要点一'))
+  assert.equal((editingText.match(/textarea/g) ?? []).length, 2)
+
+  assert.deepEqual(patchOf(' 新答案 ', '要点一\n\n 要点二 '), { answer: '新答案', points: ['要点一', '要点二'] })
+  assert.deepEqual(patchOf('', ''), { answer: '', points: [] })
+})

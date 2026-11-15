@@ -46,6 +46,8 @@ window.__ModuleLoader__.load({
       save: '保存',
       cancel: '取消',
       edit: '编辑',
+      pointsPlaceholder: '每行一个要点（判分按要点算）',
+      referenceEmpty: '答案和要点不能都空着。',
       refresh: '刷新',
       importHint: '在对话里用 /learn import <材料文件> 导入题库。',
       emptyChecklist: '没有待核对的题。',
@@ -155,6 +157,8 @@ window.__ModuleLoader__.load({
       accept: 'Accept',
       reject: 'Reject',
       edit: 'Edit',
+      pointsPlaceholder: 'One key point per line (grading uses these)',
+      referenceEmpty: 'The answer and its key points cannot both be empty.',
       editPrompt: 'New stem (empty cancels):',
       emptyBank: 'The bank is empty. Ask the AI to import one.',
       emptyChecklist: 'No flagged questions.',
@@ -516,7 +520,7 @@ window.__ModuleLoader__.load({
      * @param {object} props - component props.
      * @returns {object} React node.
      */
-    function QuestionCard({ card, t, shownSeen, shownTotal, answerOpen, openTerm, onToggleAnswer, onPickTerm, onNext, onPrev, canPrev, onFavorite, onRevisit, revisit, supplementProps }) {
+    function QuestionCard({ card, t, shownSeen, shownTotal, answerOpen, openTerm, onToggleAnswer, onPickTerm, onNext, onPrev, canPrev, onFavorite, onRevisit, revisit, supplementProps, referenceProps }) {
       return h('div', { className: 'lc-card' },
         h(StemView, { stem: card.stem, termHits: card.termHits, onPick: onPickTerm, picked: openTerm }),
         h('div', { className: 'lc-actions' },
@@ -527,10 +531,7 @@ window.__ModuleLoader__.load({
           h('button', { type: 'button', className: 'lc-btn', 'data-active': String(revisit), onClick: onRevisit }, t('revisit'))),
         answerOpen && card.reference
           ? h('div', { className: 'lc-answer' },
-            card.reference.answer || '',
-            card.reference.points && card.reference.points.length > 0
-              ? h('ul', { className: 'lc-points' }, card.reference.points.map((point, index) => h('li', { key: index }, point)))
-              : null,
+            h(ReferenceBlock, { reference: card.reference, t, ...(referenceProps ?? {}) }),
             h(SupplementBlock, { reference: card.reference, t, ...(supplementProps ?? {}) }))
           : null,
         h('div', { className: 'lc-meta' },
@@ -578,6 +579,9 @@ window.__ModuleLoader__.load({
       const [report, setReport] = useState(null)
       const [supplementEditing, setSupplementEditing] = useState(false)
       const [supplementDraft, setSupplementDraft] = useState('')
+      const [referenceEditing, setReferenceEditing] = useState(false)
+      const [referenceAnswer, setReferenceAnswer] = useState('')
+      const [referencePoints, setReferencePoints] = useState('')
       const [history, setHistory] = useState([])
       const [revisit, setRevisit] = useState(false)
 
@@ -967,11 +971,39 @@ window.__ModuleLoader__.load({
         }
       }, [card, sessionId, supplementDraft, showCard, fail])
 
+      const editReference = useCallback(() => {
+        if (!card) return
+        const reference = card.reference ?? {}
+        setReferenceAnswer(typeof reference.answer === 'string' ? reference.answer : '')
+        setReferencePoints(Array.isArray(reference.points) ? reference.points.join('\n') : '')
+        setReferenceEditing(true)
+      }, [card])
+
+      const saveReference = useCallback(async () => {
+        if (!card || !sessionId) return
+        const patch = referencePatch(referenceAnswer, referencePoints)
+        if (patch.answer.length === 0 && patch.points.length === 0) {
+          fail(t('referenceEmpty'))
+          return
+        }
+        try {
+          await request('updateQuestion', { id: card.id, patch: { reference: patch } }, sessionId)
+          setReferenceEditing(false)
+          setError(null)
+          await showCard(card.id)
+        } catch (err) {
+          fail(err)
+        }
+      }, [card, sessionId, referenceAnswer, referencePoints, showCard, fail, t])
+
       useEffect(() => {
         setAnswer('')
         setGradedAttempt(null)
         setSupplementEditing(false)
         setSupplementDraft('')
+        setReferenceEditing(false)
+        setReferenceAnswer('')
+        setReferencePoints('')
         // A card whose newest attempt has no grade yet is still being graded
         // (the learner may have reloaded mid-wait): resume the poll there.
         const state = gradingStateFor(card)
@@ -1158,6 +1190,16 @@ window.__ModuleLoader__.load({
               onPrev: prevQuestion,
               onRevisit: toggleRevisit,
               onFavorite: toggleFavorite,
+              referenceProps: {
+                editing: referenceEditing,
+                answerDraft: referenceAnswer,
+                pointsDraft: referencePoints,
+                onEdit: editReference,
+                onAnswer: setReferenceAnswer,
+                onPoints: setReferencePoints,
+                onSave: saveReference,
+                onCancel: () => setReferenceEditing(false),
+              },
               supplementProps: {
                 editing: supplementEditing,
                 draft: supplementDraft,
@@ -1176,6 +1218,16 @@ window.__ModuleLoader__.load({
               onAnswer: setAnswer,
               onSubmit: submitAnswer,
               onRetry: retryGrading,
+              referenceProps: {
+                editing: referenceEditing,
+                answerDraft: referenceAnswer,
+                pointsDraft: referencePoints,
+                onEdit: editReference,
+                onAnswer: setReferenceAnswer,
+                onPoints: setReferencePoints,
+                onSave: saveReference,
+                onCancel: () => setReferenceEditing(false),
+              },
               supplementProps: {
                 editing: supplementEditing,
                 draft: supplementDraft,
@@ -1619,6 +1671,43 @@ window.__ModuleLoader__.load({
     }
 
     /**
+     * @param {string} answer - edited answer text.
+     * @param {string} pointsText - edited points, one per line.
+     * @returns {{ answer: string, points: string[] }} the reference patch.
+     */
+    function referencePatch(answer, pointsText) {
+      const text = typeof answer === 'string' ? answer.trim() : ''
+      const points = String(pointsText ?? '')
+        .split('\n')
+        .map(line => line.trim())
+        .filter(line => line.length > 0)
+      return { answer: text, points }
+    }
+
+    /**
+     * The standard answer and its key points, editable in place.
+     * @param {object} props - component props.
+     * @returns {object} React node.
+     */
+    function ReferenceBlock({ reference, t, editing, answerDraft, pointsDraft, onEdit, onAnswer, onPoints, onSave, onCancel }) {
+      const answer = reference && typeof reference.answer === 'string' ? reference.answer : ''
+      const points = reference && Array.isArray(reference.points) ? reference.points : []
+      if (editing) {
+        return h('div', null,
+          h('textarea', { className: 'lc-input', rows: 3, value: answerDraft, onChange: event => onAnswer(event.target.value) }),
+          h('textarea', { className: 'lc-input', rows: 4, value: pointsDraft, placeholder: t('pointsPlaceholder'), onChange: event => onPoints(event.target.value) }),
+          h('div', { className: 'lc-actions' },
+            h('button', { type: 'button', className: 'lc-btn lc-btn-primary', onClick: onSave }, t('save')),
+            h('button', { type: 'button', className: 'lc-btn', onClick: onCancel }, t('cancel'))))
+      }
+      return h('div', null,
+        h('div', { className: 'lc-supplement-head' },
+          h('span', null, answer),
+          h('button', { type: 'button', className: 'lc-btn', onClick: onEdit }, t('edit'))),
+        points.length > 0 ? h('ul', { className: 'lc-points' }, points.map((point, index) => h('li', { key: index }, point))) : null)
+    }
+
+    /**
      * The plan page: one block per stage, three status buttons.
      * @param {object} props - component props.
      * @returns {object} React node.
@@ -1749,7 +1838,7 @@ window.__ModuleLoader__.load({
         }, props => h(PanelBoundary, { t }, h(Panel, { ...props, layout, t }))))
       },
       /** Rendered-only internals, exposed so the node harness can exercise them. */
-      __test: { PanelBoundary, popoverStyle, Icon, TermPopover, isOutsidePopover, TERM_ACCENT, RelatedChips, GradeBlock, canSubmit, QuizModal, WeakList, QuestionCard, SupplementBlock, gradingStateFor, stillPending, PlanList, ReportPane, stagesFrom, formatWhen },
+      __test: { PanelBoundary, popoverStyle, Icon, TermPopover, isOutsidePopover, TERM_ACCENT, RelatedChips, GradeBlock, canSubmit, QuizModal, WeakList, QuestionCard, SupplementBlock, gradingStateFor, stillPending, PlanList, ReportPane, stagesFrom, formatWhen, ReferenceBlock, referencePatch },
     }
   },
 })
