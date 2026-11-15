@@ -43,17 +43,17 @@ test('树在没有题时给出零计数', () => {
   assert.deepEqual(view.nodes.map(n => n.total), [0, 0])
 })
 
-test('队列跳过已读，并按知识点过滤、分页', () => {
+test('队列包含已读、按知识点过滤、可分页', () => {
   const questions = [q('q1'), q('q2'), q('q3'), q('q4', { nodeId: 'n_2' })]
   const progress = { q1: { seen: true } }
   const page = queueView(meta, questions, progress, { offset: 0, limit: 1 })
-  assert.equal(page.total, 3)
+  assert.equal(page.total, 4)
   assert.deepEqual(page.items.map(i => i.id), ['q2'])
   assert.equal(page.offset, 0)
   const byNode = queueView(meta, questions, progress, { nodeId: 'n_2', offset: 0, limit: 10 })
   assert.deepEqual(byNode.items.map(i => i.id), ['q4'])
-  const revisit = queueView(meta, questions, progress, { offset: 0, limit: 10, revisit: true })
-  assert.equal(revisit.total, 4)
+  const unseenOnly = queueView(meta, questions, progress, { offset: 0, limit: 10, onlyUnseen: true })
+  assert.equal(unseenOnly.total, 3)
 })
 
 test('队列不含待核对、孤立的题', () => {
@@ -164,4 +164,32 @@ test('planView 把知识点 id 换成标题', () => {
 test('planView 在没有计划时给空数组', () => {
   assert.deepEqual(planView({ tree: [], plan: [] }).stages, [])
   assert.deepEqual(planView(null).stages, [])
+})
+test('过题队列默认包含已过的题，未过的排在前面', () => {
+  const questions = [
+    { id: 'q1', key: 'k1', stem: '一', nodeId: 'n_1', status: 'ok', flags: [], reference: { answer: 'a', points: ['p'] } },
+    { id: 'q2', key: 'k2', stem: '二', nodeId: 'n_1', status: 'ok', flags: [], reference: { answer: 'a', points: ['p'] } },
+    { id: 'q3', key: 'k3', stem: '三', nodeId: 'n_1', status: 'ok', flags: [], reference: { answer: 'a', points: ['p'] } },
+  ]
+  const progress = { q1: { seen: true }, q3: { seen: true } }
+  const view = queueView(meta, questions, progress, { limit: 10 })
+  assert.equal(view.total, 3)
+  assert.deepEqual(view.items.map(item => item.id), ['q2', 'q1', 'q3'])
+  assert.equal(view.items[0].seen, false)
+  assert.equal(view.items[1].seen, true)
+})
+
+test('只看未过会过滤掉已过的题', () => {
+  const questions = [
+    { id: 'q1', key: 'k1', stem: '一', nodeId: 'n_1', status: 'ok', flags: [], reference: { answer: 'a', points: ['p'] } },
+    { id: 'q2', key: 'k2', stem: '二', nodeId: 'n_1', status: 'ok', flags: [], reference: { answer: 'a', points: ['p'] } },
+  ]
+  const view = queueView(meta, questions, { q1: { seen: true } }, { limit: 10, onlyUnseen: true })
+  assert.equal(view.total, 1)
+  assert.deepEqual(view.items.map(item => item.id), ['q2'])
+})
+
+test('题卡带上是否已过', () => {
+  const card = questionView([q('q1')], [], 'q1', { q1: { seen: true } })
+  assert.equal(card.seen, true)
 })

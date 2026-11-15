@@ -64,13 +64,23 @@ export function queueView(meta, questions, progress, options = {}) {
   const offset = Math.max(0, options.offset ?? 0)
   const limit = Math.max(1, options.limit ?? 20)
   const seen = id => Boolean(progress && progress[id] && progress[id].seen)
+  // A question the learner has passed stays in the queue: losing it on refresh
+  // makes finished work look unfinished. Unseen ones come first so work is
+  // still obvious, and `onlyUnseen` is the opt-in filter.
   const usable = (questions ?? [])
     .filter(practiceable)
     .filter(q => (options.nodeId ? q.nodeId === options.nodeId : true))
-    .filter(q => (options.revisit ? true : !seen(q.id)))
-  const items = usable.slice(offset, offset + limit).map(q => {
-    const firstLine = q.stem.split('\n')[0]
-    return { id: q.id, stem: q.stem, firstLine: firstLine.length > 60 ? `${firstLine.slice(0, 60)}…` : firstLine }
+    .filter(q => (options.onlyUnseen ? !seen(q.id) : true))
+    .map((q, index) => ({ q, index, seen: seen(q.id) }))
+    .sort((a, b) => (Number(a.seen) - Number(b.seen)) || (a.index - b.index))
+  const items = usable.slice(offset, offset + limit).map(row => {
+    const firstLine = row.q.stem.split('\n')[0]
+    return {
+      id: row.q.id,
+      stem: row.q.stem,
+      firstLine: firstLine.length > 60 ? `${firstLine.slice(0, 60)}…` : firstLine,
+      seen: row.seen,
+    }
   })
   return { items, total: usable.length, offset }
 }
@@ -109,6 +119,7 @@ export function questionView(questions, terms, id, progress = {}, attempts = [])
       ? { id: latest.id, at: latest.at, kind: latest.kind, grade: latest.grade }
       : null,
     favorite: Boolean(progress && progress[id] && progress[id].favorite),
+    seen: Boolean(progress && progress[id] && progress[id].seen),
     nodeId: q.nodeId,
     status: q.status,
     flags: q.flags ?? [],

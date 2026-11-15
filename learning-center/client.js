@@ -41,7 +41,8 @@ window.__ModuleLoader__.load({
       page: '第 %s 页',
       noQuestions: '这个知识点还没有可练的题。',
       allSeen: '这个知识点的题都读过了。',
-      revisit: '复习已读',
+      onlyUnseen: '只看未过',
+      seenBadge: '已过',
       prev: '上一题',
       save: '保存',
       cancel: '取消',
@@ -151,7 +152,8 @@ window.__ModuleLoader__.load({
       page: 'page %s',
       noQuestions: 'No practiceable question under this topic yet.',
       allSeen: 'You have read every question under this topic.',
-      revisit: 'Review read questions',
+      onlyUnseen: 'Only new',
+      seenBadge: 'Passed',
       prev: 'Previous',
       needsReview: 'Needs review',
       accept: 'Accept',
@@ -520,7 +522,7 @@ window.__ModuleLoader__.load({
      * @param {object} props - component props.
      * @returns {object} React node.
      */
-    function QuestionCard({ card, t, shownSeen, shownTotal, answerOpen, openTerm, onToggleAnswer, onPickTerm, onNext, onPrev, canPrev, onFavorite, onRevisit, revisit, supplementProps, referenceProps }) {
+    function QuestionCard({ card, t, shownSeen, shownTotal, answerOpen, openTerm, onToggleAnswer, onPickTerm, onNext, onPrev, canPrev, onFavorite, onToggleOnlyUnseen, onlyUnseen, supplementProps, referenceProps }) {
       return h('div', { className: 'lc-card' },
         h(StemView, { stem: card.stem, termHits: card.termHits, onPick: onPickTerm, picked: openTerm }),
         h('div', { className: 'lc-actions' },
@@ -528,13 +530,14 @@ window.__ModuleLoader__.load({
           h('button', { type: 'button', className: 'lc-btn', onClick: onFavorite }, card.favorite ? '★' : '☆'),
           h('button', { type: 'button', className: 'lc-btn', onClick: onPrev, disabled: !canPrev }, t('prev')),
           h('button', { type: 'button', className: 'lc-btn lc-btn-primary', onClick: onNext }, t('next')),
-          h('button', { type: 'button', className: 'lc-btn', 'data-active': String(revisit), onClick: onRevisit }, t('revisit'))),
+          h('button', { type: 'button', className: 'lc-btn', 'data-active': String(onlyUnseen), onClick: onToggleOnlyUnseen }, t('onlyUnseen'))),
         answerOpen && card.reference
           ? h('div', { className: 'lc-answer' },
             h(ReferenceBlock, { reference: card.reference, t, ...(referenceProps ?? {}) }),
             h(SupplementBlock, { reference: card.reference, t, ...(supplementProps ?? {}) }))
           : null,
         h('div', { className: 'lc-meta' },
+          card.seen ? h('span', { className: 'lc-flag' }, t('seenBadge')) : null,
           h('span', null, t('seenCount').replace('%s', String(shownSeen)).replace('%s', String(shownTotal))),
           card.source && card.source.file
             ? h('span', null, `${t('source')}: ${card.source.file}${card.source.page ? ` · ${t('page').replace('%s', card.source.page)}` : ''}`)
@@ -585,7 +588,7 @@ window.__ModuleLoader__.load({
       const [focusAnswer, setFocusAnswer] = useState(false)
       const answerRef = useRef(null)
       const [history, setHistory] = useState([])
-      const [revisit, setRevisit] = useState(false)
+      const [onlyUnseen, setOnlyUnseen] = useState(false)
 
       const fail = useCallback(err => setError((err && err.message) || String(err)), [])
 
@@ -638,8 +641,8 @@ window.__ModuleLoader__.load({
       }, [sessionId])
 
       /** Load one page of the practice queue and show its first card. */
-      const loadQueue = useCallback(async (id, node, revisitMode) => {
-        const next = await request('queue', { nodeId: node ?? undefined, offset: 0, limit: 50, revisit: revisitMode === true }, id)
+      const loadQueue = useCallback(async (id, node, onlyUnseenMode) => {
+        const next = await request('queue', { nodeId: node ?? undefined, offset: 0, limit: 50, onlyUnseen: oevisitMode === true }, id)
         setPage(next)
         setCursor(0)
         if (next.items.length === 0) {
@@ -697,7 +700,7 @@ window.__ModuleLoader__.load({
               const detail = await request('question', { id: card.id }, sessionId)
               if (detail.question) setCard(detail.question)
             } else {
-              await loadQueue(sessionId, nodeId, revisit)
+              await loadQueue(sessionId, nodeId, onlyUnseen)
             }
           }
           setError(null)
@@ -706,7 +709,7 @@ window.__ModuleLoader__.load({
         } finally {
           setBusy(false)
         }
-      }, [sessionId, tab, nodeId, revisit, card, loadBasics, loadQueue, fail])
+      }, [sessionId, tab, nodeId, onlyUnseen, card, loadBasics, loadQueue, fail])
 
       const saveTarget = useCallback(async form => {
         if (!sessionId) return
@@ -745,11 +748,11 @@ window.__ModuleLoader__.load({
             await showCard(following.id)
             return
           }
-          await loadQueue(sessionId, nodeId, revisit)
+          await loadQueue(sessionId, nodeId, onlyUnseen)
         } catch (err) {
           fail(err)
         }
-      }, [sessionId, card, nodeId, revisit, history, cursor, page, loadQueue, showCard, refreshTree, maybeQuiz, fail])
+      }, [sessionId, card, nodeId, onlyUnseen, history, cursor, page, loadQueue, showCard, refreshTree, maybeQuiz, fail])
 
       const prevQuestion = useCallback(async () => {
         if (!sessionId) return
@@ -769,17 +772,17 @@ window.__ModuleLoader__.load({
         }
       }, [sessionId, cursor, page, history, showCard, maybeQuiz, fail])
 
-      const toggleRevisit = useCallback(async () => {
-        const next = !revisit
+      const toggleOnlyUnseen = useCallback(async () => {
+        const next = !onlyUnseen
         maybeQuiz()
-        setRevisit(next)
+        setOnlyUnseen(next)
         if (!sessionId) return
         try {
           await loadQueue(sessionId, nodeId, next)
         } catch (err) {
           fail(err)
         }
-      }, [revisit, sessionId, nodeId, loadQueue, maybeQuiz, fail])
+      }, [onlyUnseen, sessionId, nodeId, loadQueue, maybeQuiz, fail])
 
       const pickNode = useCallback(async id => {
         if (id !== nodeId) maybeQuiz()
@@ -788,14 +791,14 @@ window.__ModuleLoader__.load({
         if (!sessionId) return
         setBusy(true)
         try {
-          await loadQueue(sessionId, id, revisit)
+          await loadQueue(sessionId, id, next)
           setError(null)
         } catch (err) {
           fail(err)
         } finally {
           setBusy(false)
         }
-      }, [sessionId, revisit, loadQueue, fail])
+      }, [sessionId, onlyUnseen, loadQueue, fail])
 
       const openQuestion = useCallback(async id => {
         if (!sessionId) return
@@ -956,13 +959,13 @@ window.__ModuleLoader__.load({
           }
           // Re-sync the queue to this question's topic so 下一题 does not jump
           // from a stale queue position.
-          await loadQueue(sessionId, detail.question.nodeId, revisit)
+          await loadQueue(sessionId, detail.question.nodeId, onlyUnseen)
           await openQuestion(id)
           setFocusAnswer(true)
         } catch (err) {
           fail(err)
         }
-      }, [sessionId, openQuestion, loadQueue, revisit, setFocusAnswer, t, fail])
+      }, [sessionId, openQuestion, loadQueue, onlyUnseen, setFocusAnswer, t, fail])
 
       const fillSupplement = useCallback(() => {
         if (!card) return
@@ -1215,13 +1218,13 @@ window.__ModuleLoader__.load({
               shownTotal,
               answerOpen,
               openTerm,
-              revisit,
+              onlyUnseen,
               canPrev: history.length > 0 || cursor > 0,
               onToggleAnswer: () => setAnswerOpen(!answerOpen),
               onPickTerm: setOpenTerm,
               onNext: nextQuestion,
               onPrev: prevQuestion,
-              onRevisit: toggleRevisit,
+              onToggleOnlyUnseen: toggleOnlyUnseen,
               onFavorite: toggleFavorite,
               referenceProps: {
                 editing: referenceEditing,
@@ -1286,9 +1289,9 @@ window.__ModuleLoader__.load({
           : h('div', null,
             h('p', { className: 'lc-node-sub' }, nodeHasQuestions ? t('allSeen') : t('noQuestions')),
             h('p', { className: 'lc-node-sub' }, t('importHint')),
-            nodeHasQuestions || revisit
+            nodeHasQuestions || onlyUnseen
               ? null
-              : h('button', { type: 'button', className: 'lc-btn', onClick: toggleRevisit }, t('revisit'))))
+              : h('button', { type: 'button', className: 'lc-btn', onClick: toggleOnlyUnseen }, t('onlyUnseen'))))
         : null
 
       const bankPane = hasTarget && hasTree && tab === 'bank'
