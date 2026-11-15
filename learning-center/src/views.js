@@ -84,6 +84,12 @@ export function queueView(meta, questions, progress, options = {}) {
 export function questionView(questions, terms, id, progress = {}) {
   const q = (questions ?? []).find(item => item.id === id)
   if (!q) return null
+  const related = q.related ?? { questions: [], deeper: [], broader: [] }
+  const byId = new Map((questions ?? []).map(item => [item.id, item]))
+  const relatedQuestions = (Array.isArray(related.questions) ? related.questions : [])
+    .map(relatedId => byId.get(relatedId))
+    .filter(Boolean)
+    .map(item => ({ id: item.id, stem: item.stem }))
   return {
     id: q.id,
     stem: q.stem,
@@ -91,7 +97,8 @@ export function questionView(questions, terms, id, progress = {}) {
     reference: q.reference,
     source: q.source,
     tags: q.tags ?? [],
-    related: q.related ?? { questions: [], deeper: [], broader: [] },
+    related,
+    relatedQuestions,
     favorite: Boolean(progress && progress[id] && progress[id].favorite),
     nodeId: q.nodeId,
     status: q.status,

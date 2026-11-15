@@ -88,6 +88,21 @@ test('题卡带上收藏状态', () => {
   assert.equal(card.favorite, true)
 })
 
+test('题卡给关联题带上题干，目标不存在的丢掉', () => {
+  const questions = [
+    q('q1', { related: { questions: ['q2', 'gone'], deeper: ['为什么？'], broader: [] } }),
+    q('q2'),
+  ]
+  const card = questionView(questions, [], 'q1')
+  assert.deepEqual(card.relatedQuestions, [{ id: 'q2', stem: '题目 q2 的题干' }])
+  assert.deepEqual(card.related.deeper, ['为什么？'])
+})
+
+test('题卡没有关联网时给空数组而不是 undefined', () => {
+  const card = questionView([q('q1')], [], 'q1')
+  assert.deepEqual(card.relatedQuestions, [])
+})
+
 test('待核对清单只列 needs-review，并带 flag 说明', () => {
   const questions = [q('q1'), q('q2', { status: 'needs-review', flags: ['missing_answer', 'anchor_missing'] }), q('q3', { status: 'rejected', flags: ['empty_stem'] })]
   const list = checklistView(questions)
