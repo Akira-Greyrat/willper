@@ -67,6 +67,13 @@
 | 收藏往返 | `favorite on` → `favorites` → `favorite off` | ✅ 列表先有后空，数据已还原 |
 | 复习模式 | `queue {revisit:true}` | ✅ 返回全部 3 题 |
 
+## v2a · 问题串验收（2026-11-15）
+
+- 137 个测试全绿（v2a 新增 6 个：related 归一化/解析 5 个、入库 3 个、store 1 个、views 2 个、client 2 个，其中部分并入既有文件），包检查通过。
+- 真机：在 `learning/` 里放入两条带 `related` 的草稿并调用 `learning_import commit` → `新增 1、合并 1`。检查 `questions.jsonl`：可解析的题干换成了题号 `q_94e7275b`，指不到的题干被丢弃，`deeper`/`broader` 原样入库。
+- 路由：`POST /api/learning {op:"question", id:"q_70dd6b2b"}` 返回 `relatedQuestions: [{ id: "q_94e7275b", stem: "什么是闭包？它解决了什么问题？" }]`，`deeper` 为「闭包捕获的是变量还是值？」。
+- 待人工确认：卡片上三组 chip 的显示与点击、空关联网题目的「让 AI 补这题的关联网」入口。
+
 ## 面板人工确认（2026-11-14 22:20 起，23:0x 收尾）
 
 - 用户按 Ctrl+R 后，中间栏出现面板（此前白屏的两层原因：未 `inject` 就读 `ctx.layout`；宿主持有的旧客户端包导致 404）。
