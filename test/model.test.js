@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { findAnchor, mintId, normalizeStem, questionKey, validateDraft } from '../learning-center/src/model.js'
+import { findAnchor, mintId, normalizeStem, questionKey, validateDraft, validatePatch } from '../learning-center/src/model.js'
 
 const base = () => ({
   stem: '什么是闭包？',
@@ -120,4 +120,28 @@ test('tags 去重去空、来源字段有默认值', () => {
   const r = validateDraft(raw, ctx())
   assert.deepEqual(r.q.tags, ['闭包', '函数'])
   assert.equal(r.q.source.page, null)
+})
+
+test('reference.supplement 保留并截断到 2000 字', () => {
+  const raw = base()
+  raw.reference = { answer: 'a', points: [], supplement: '长'.repeat(2100) }
+  const r = validateDraft(raw, ctx())
+  assert.equal(r.q.reference.supplement.length, 2000)
+})
+
+test('没有 supplement 时是空字符串', () => {
+  assert.equal(validateDraft(base(), ctx()).q.reference.supplement, '')
+})
+
+test('validatePatch 合并 supplement 不清掉 answer', () => {
+  const current = { reference: { answer: 'a', points: ['p'], supplement: '', provenance: 'source' } }
+  const next = validatePatch(current, { reference: { supplement: '面试里我会这样讲' } }, { nodeIds: new Set(['n_1']) })
+  assert.equal(next.reference.supplement, '面试里我会这样讲')
+  assert.equal(next.reference.answer, 'a')
+  assert.deepEqual(next.reference.points, ['p'])
+})
+
+test('validatePatch 的 supplement 非字符串时报错', () => {
+  const current = { reference: { answer: 'a', points: [], supplement: '' } }
+  assert.throws(() => validatePatch(current, { reference: { supplement: 42 } }, { nodeIds: new Set() }), /invalid supplement/)
 })

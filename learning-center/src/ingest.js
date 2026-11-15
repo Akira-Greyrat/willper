@@ -237,6 +237,7 @@ function stashRejectedDraft(verdict, raw, now) {
     reference: {
       answer: raw && raw.reference && typeof raw.reference.answer === 'string' ? raw.reference.answer : '',
       points: Array.isArray(raw && raw.reference && raw.reference.points) ? raw.reference.points : [],
+      supplement: raw && raw.reference && typeof raw.reference.supplement === 'string' ? raw.reference.supplement : '',
       provenance: 'source',
       confidence: null,
     },

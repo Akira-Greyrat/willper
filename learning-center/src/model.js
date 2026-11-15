@@ -9,6 +9,18 @@ import { createHash } from 'node:crypto'
 /** Shortest stem that is plausibly a whole question. */
 const MIN_STEM = 6
 
+/** Longest stored supplement (interview narrative / pitfalls), in characters. */
+export const SUPPLEMENT_LIMIT = 2000
+
+/**
+ * @param {*} value - candidate supplement.
+ * @returns {string} trimmed and capped supplement text; empty when absent.
+ */
+function supplementOf(value) {
+  if (typeof value !== 'string') return ''
+  return value.trim().slice(0, SUPPLEMENT_LIMIT)
+}
+
 /**
  * @param {string} input - any text.
  * @returns {string} sha1 hex digest.
@@ -119,10 +131,14 @@ export function validatePatch(current, patch, options) {
       }
       case 'reference': {
         if (!value || typeof value !== 'object') throw new Error('invalid reference')
-        const answer = typeof value.answer === 'string' ? value.answer : ''
-        const points = Array.isArray(value.points) ? value.points : []
+        // Merge first: a patch may carry only `supplement` and must keep the
+        // stored answer and points.
+        const merged = { ...(current.reference ?? {}), ...value }
+        const answer = typeof merged.answer === 'string' ? merged.answer : ''
+        const points = Array.isArray(merged.points) ? merged.points : []
         if (answer.trim().length === 0 && points.length === 0) throw new Error('invalid reference')
-        next.reference = { ...current.reference, ...value }
+        if (merged.supplement !== undefined && typeof merged.supplement !== 'string') throw new Error('invalid supplement')
+        next.reference = { ...merged, answer, points, supplement: supplementOf(merged.supplement) }
         break
       }
       case 'source': {
@@ -224,6 +240,7 @@ export function validateDraft(raw, options) {
       reference: {
         answer,
         points,
+        supplement: supplementOf(reference.supplement),
         provenance: unsourced
           ? 'user'
           : (reference.provenance === 'ai-drafted' || reference.provenance === 'user'

@@ -266,3 +266,13 @@ test('空 inbox 时是全零，不写文件', async () => {
     assert.deepEqual(await readdir(paths.root).catch(() => []), [])
   })
 })
+
+test('待核对草稿也保留 supplement', async () => {
+  await withTempStore(async paths => {
+    await writeJsonl(paths.inboxQuestions, [draft({ reference: { points: [], supplement: '陷阱在这' } })])
+    await commitInbox(paths, options())
+    const [row] = await readJsonl(paths.questions)
+    assert.equal(row.status, 'needs-review')
+    assert.equal(row.reference.supplement, '陷阱在这')
+  })
+})
