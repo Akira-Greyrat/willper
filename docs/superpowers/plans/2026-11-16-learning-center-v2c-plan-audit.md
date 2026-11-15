@@ -67,6 +67,13 @@ test('非数组与非对象元素被丢掉', () => {
   assert.deepEqual(normalizePlan(null), [])
   assert.deepEqual(normalizePlan(['x', { title: '一' }]).length, 1)
 })
+
+test('AI 重写计划换了 id 时，旧进度不会串到别的阶段', () => {
+  // 原来 p_1 已完成；新计划只给了一个未编号的阶段
+  const out = normalizePlan([{ title: '换了一个阶段' }])
+  assert.deepEqual(out.map(stage => stage.id), ['p_1'])
+  assert.equal(out[0].status, 'todo')
+})
 ```
 
 - [ ] **Step 2: 跑，确认失败**
@@ -227,6 +234,13 @@ test('auditDigest 覆盖整个题库并封顶', () => {
   assert.deepEqual(digest.duplicates, ['q4'])
   assert.deepEqual(digest.orphans, ['q3'])
   assert.deepEqual(digest.missingAnswer, ['q2'])
+})
+
+test('超过上限时报告剩余条数，不假装题库只有这些', () => {
+  const questions = Array.from({ length: 30 }, (_, index) => ({ id: `q${index}`, nodeId: 'n_1', status: 'ok', flags: ['duplicate_of:q0'] }))
+  const digest = auditDigest({ meta: { tree: [{ id: 'n_1', title: '基础' }] }, questions, materials: [] })
+  assert.equal(digest.duplicates.length, 20)
+  assert.equal(digest.overflow.others, 10)
 })
 
 test('saveReport 保留最近 20 份并删掉更旧的文件', async () => {
