@@ -35,7 +35,14 @@
 不新增结构，只加一个字段：
 
 - `meta.plan[].status`：`'todo' | 'doing' | 'done'`（AI 写计划时可以给，没给就是 `todo`），面板改它。
-- 报告文件：`learning/reports/audit-<ISO 时间>.md`；`learning/reports/index.json` 存 `[{ at, file }]`，最多保留 20 条（多了删最旧的文件与索引项）。
+- `meta.plan[].id`：**由插件负责**。`learning_plan set_plan` 写入时统一规整：缺 id 的按顺序补 `p_1..p_n`；已有的 id 保留；重复的重新编号；`status` 不在枚举里的一律落回 `todo`。面板只认 id，不认下标。
+  - 代价照实说：AI 之后重写计划时若换了 id，之前勾的进度会回到"未开始"——这是它改了阶段划分的必然结果。
+- 报告的阶段形状沿用 v1 的对象模型，面板两种都认（防止模型写成字符串）：
+  - `reading`：`[{ file, section?, pages? }]` 或字符串；
+  - `prereqs` / `perspectives` / `checkpoints`：字符串数组；
+  - `project`：`{ title, deliverable? }` 或字符串。
+  - `learning_plan` 的工具说明和两个 CTA 的提示词都写明这套形状（原来只有字段名，模型无从照抄）。
+- 报告文件：`learning/reports/audit-<yyyyMMdd-HHmmss>.md`（时间戳用 `yyyyMMdd-HHmmss`，避免冒号与同秒撞名）；`learning/reports/index.json` 存 `[{ at, file }]`，最多保留 20 条（多了删最旧的文件与索引项）。
 
 ## 五、工具与路由
 
@@ -43,8 +50,17 @@
 
 | 工具 | 参数 | 作用 |
 | --- | --- | --- |
-| `learning_audit` | `{ action: 'brief' }` | 返回体检清单与写作要求（每类 0-5 条、必须点出题号或知识点、结尾给"下一步三件事"），不改库 |
+| `learning_audit` | `{ action: 'brief' }` | 返回**体检清单 + 一份有上限的题库摘要**（见下），不改库 |
 | `learning_audit` | `{ action: 'write', markdown }` | 把报告写到 `reports/audit-<时间>.md` 并更新 `index.json`；返回 `{ at, file }` |
+
+`brief` 返回的摘要（全部由 Host 算好，**覆盖整个题库**：`ok` / `needs-review` / `rejected` / `orphaned` 都算，否则"缺答案""跑出范围"两类必然是空的）：
+
+- 每个知识点的题数（含 0 题的，列出前 20 个知识点）；
+- 待核对题：id + flags，最多 40 条，超出写"还有 N 条，见 learning/questions.jsonl"；
+- 重复（`duplicate_of`）、孤儿（`orphaned`）、缺答案（`missing_answer`）的计数与最多 20 个 id；
+- 现有材料文件清单。
+
+写作要求一并给出：每类 0-5 条、必须点出题号或知识点、结尾给"下一步三件事"、报告里说明每条对应的 status。
 
 路由新增两个 op：
 
@@ -83,10 +99,11 @@
 
 1. 计划页按顺序显示 `meta.plan` 的所有阶段，知识点 id 换成树里的标题；没有计划时显示空态与按钮。
 2. 点某个阶段的状态，刷新后仍是新状态；`meta.plan` 里只有那个阶段变了。
-3. 体检页没有报告时显示空态；点「让 AI 体检题库」后 AI 调 `learning_audit write`，刷新能看到报告正文与时间。
-4. 再体检一次会产生新文件，面板显示最新一份，`index.json` 里最少两份。
-5. `reports/` 里超过 20 份时最旧的被删。
-6. `node --test` 全绿，`scripts/check-package.mjs` 通过。
+3. `set_plan` 写入缺 id 的计划后，阶段自动获得 `p_1..p_n`，状态默认 `todo`；重复 id 被重新编号。
+4. 体检页没有报告时显示空态；点「让 AI 体检题库」后 AI 调 `learning_audit brief` 拿到摘要、写报告、调 `write`，刷新能看到报告正文与时间。
+5. 再体检一次会产生新文件，面板显示最新一份，`index.json` 里最少两份。
+6. `reports/` 里超过 20 份时最旧的被删。
+7. `node --test` 全绿，`scripts/check-package.mjs` 通过（注意：新增工具后要同步三处工具计数断言）。
 
 ## 八、风险
 
