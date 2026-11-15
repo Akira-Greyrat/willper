@@ -14,7 +14,7 @@ import { commitInbox } from './ingest.js'
 import { readJson, readJsonl, writeJson, writeJsonl, ensureDir } from './io.js'
 import { normalizePath, questionKey, validateDraft, validatePatch } from './model.js'
 import { normalizeRelated, resolveRelatedIds } from './related.js'
-import { PLAN_STATUSES } from './plan.js'
+import { PLAN_STATUSES, normalizePlan } from './plan.js'
 import { resolveStore } from './paths.js'
 import { weakView } from './views.js'
 
@@ -37,6 +37,20 @@ function emptyMeta(config) {
       autoAcceptDrafts: config.autoAcceptDrafts,
       gradingMode: 'ai',
     },
+  }
+}
+
+/**
+ * @param {string} file - path.
+ * @returns {Promise<boolean>} whether the path exists.
+ */
+async function exists(file) {
+  try {
+    await readFile(file)
+    return true
+  } catch (error) {
+    if (error && error.code === 'ENOENT') return false
+    throw error
   }
 }
 
@@ -295,8 +309,11 @@ export function createStore(baseDir, rawConfig) {
    */
   async function setStageStatus(stageId, status) {
     if (!PLAN_STATUSES.includes(status)) throw new Error(`unknown status: ${String(status)}`)
+    // An id-less plan (written before ids existed, or hand-edited) must not let
+    // `undefined` match the first stage: renumber first, and refuse empties.
+    if (typeof stageId !== 'string' || stageId.length === 0) throw new Error(`unknown stage: ${String(stageId)}`)
     const meta = await readJson(paths.meta, null) ?? emptyMeta(config)
-    const plan = Array.isArray(meta.plan) ? meta.plan : []
+    const plan = normalizePlan(meta.plan)
     const stage = plan.find(item => item && item.id === stageId)
     if (!stage) throw new Error(`unknown stage: ${String(stageId)}`)
     stage.status = status
@@ -323,23 +340,29 @@ export function createStore(baseDir, rawConfig) {
     const text = typeof markdown === 'string' ? markdown.trim() : ''
     if (text.length === 0) throw new Error('empty report')
     await ensureDir(paths.reportsDir)
-    const file = `audit-${reportStamp(at)}.md`
+    // Two reports in the same second must not share a file.
+    const base = `audit-${reportStamp(at)}`
+    let file = `${base}.md`
+    for (let n = 2; await exists(join(paths.reportsDir, file)); n += 1) {
+      file = `${base}-${n}.md`
+    }
     await writeFile(join(paths.reportsDir, file), `${text}\n`, 'utf8')
     const indexFile = join(paths.reportsDir, 'index.json')
     const index = await readJson(indexFile, [])
     index.push({ at, file })
     index.sort((a, b) => String(a.at).localeCompare(String(b.at)))
-    while (index.length > 20) {
-      const oldest = index.shift()
+    const retired = []
+    while (index.length > 20) retired.push(index.shift())
+    // Write the index before deleting: a crash then leaves an orphan file,
+    // never an index entry pointing at a file that is gone.
+    await writeJson(indexFile, index)
+    for (const entry of retired) {
       try {
-        // Delete the file first: an index entry pointing at a missing file is
-        // worse than a file nobody indexes.
-        await rm(join(paths.reportsDir, oldest.file), { force: true })
+        await rm(join(paths.reportsDir, entry.file), { force: true })
       } catch {
         // A report the user already deleted is not a failure here.
       }
     }
-    await writeJson(indexFile, index)
     return { at, file }
   }
 

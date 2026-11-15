@@ -55,11 +55,20 @@ export function auditDigest({ meta, questions, materials }) {
     orphans: orphans.items,
     missingAnswer: missingAnswer.items,
     materials: Array.isArray(materials) ? materials : [],
-    totals: { questions: rows.length, nodes: allNodes.length },
+    totals: {
+      questions: rows.length,
+      nodes: allNodes.length,
+      needsReview: needsReview.length,
+      duplicates: duplicates.items.length + duplicates.extra,
+      orphans: orphans.items.length + orphans.extra,
+      missingAnswer: missingAnswer.items.length + missingAnswer.extra,
+    },
     overflow: {
       nodes: nodes.extra,
       needsReview: review.extra,
-      others: duplicates.extra + orphans.extra + missingAnswer.extra,
+      duplicates: duplicates.extra,
+      orphans: orphans.extra,
+      missingAnswer: missingAnswer.extra,
     },
   }
 }

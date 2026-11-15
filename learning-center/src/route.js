@@ -5,7 +5,7 @@
  * @module @local/learning-center/src/route
  */
 
-import { checklistView, favoritesView, queueView, questionView, treeView, weakView } from './views.js'
+import { checklistView, favoritesView, planView, queueView, questionView, treeView, weakView } from './views.js'
 
 /**
  * Read a request body with a hard size cap.
@@ -139,7 +139,9 @@ async function dispatch(op, params, sessionId, store, promptAgent, listSessions)
     }
     case 'meta': {
       const { meta } = await store.load()
-      return meta
+      // The plan is normalised on read so a plan written before stage ids
+      // existed still gets the same ids the panel shows.
+      return { ...meta, plan: planView(meta).stages }
     }
     case 'setTarget': {
       const { meta } = await store.load()

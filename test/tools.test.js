@@ -263,7 +263,8 @@ test('learning_audit brief 的渲染行要把摘要交给模型', async () => {
         nodes: [{ id: 'n_1', title: '基础', count: 3 }],
         needsReview: [{ id: 'q2', flags: ['missing_answer'] }],
         duplicates: ['q4'], orphans: [], missingAnswer: ['q2'], materials: ['materials/a.md'],
-        totals: { questions: 6, nodes: 4 }, overflow: { nodes: 1, needsReview: 2, others: 3 },
+        totals: { questions: 6, nodes: 4, duplicates: 25, orphans: 0, missingAnswer: 1, needsReview: 3 },
+        overflow: { nodes: 1, needsReview: 2, duplicates: 5, orphans: 0, missingAnswer: 0 },
       },
     })
     const text = rendered.map(part => part.text).join('\n')
@@ -272,5 +273,6 @@ test('learning_audit brief 的渲染行要把摘要交给模型', async () => {
     assert.ok(text.includes('q2'))
     assert.ok(text.includes('还有 1 个知识点'))
     assert.ok(text.includes('还有 2 条'))
+    assert.ok(text.includes('重复 25（列出 1）'))
   })
 })

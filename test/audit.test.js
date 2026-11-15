@@ -20,11 +20,13 @@ test('auditDigest 覆盖整个题库并按知识点计数', () => {
   assert.deepEqual(digest.materials, ['materials/a.md'])
 })
 
-test('超过上限时报告剩余条数，不假装题库只有这些', () => {
+test('超过上限时按类报告总数与剩余条数', () => {
   const questions = Array.from({ length: 30 }, (_, index) => ({ id: `q${String(index).padStart(2, '0')}`, nodeId: 'n_1', status: 'ok', flags: ['duplicate_of:q00'] }))
   const digest = auditDigest({ meta, questions, materials: [] })
   assert.equal(digest.duplicates.length, 20)
-  assert.equal(digest.overflow.others, 10)
+  assert.equal(digest.totals.duplicates, 30)
+  assert.equal(digest.overflow.duplicates, 10)
+  assert.equal(digest.totals.orphans, 0)
 })
 
 test('零题知识点也在列表里', () => {

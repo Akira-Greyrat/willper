@@ -293,17 +293,21 @@ export function toolDefinitions(storeFor) {
         if (value && value.file) return text(`已生成报告 ${value.file}`)
         const digest = value.digest
         const lines = [value.instructions]
-        const overflow = digest.overflow ?? { nodes: 0, needsReview: 0, others: 0 }
-        lines.push(`知识点题数（共 ${digest.totals.nodes} 个）：${digest.nodes.map(node => `${node.title}:${node.count}`).join('  ')}`)
+        const overflow = digest.overflow ?? {}
+        const totals = digest.totals ?? {}
+        lines.push(`知识点题数（共 ${totals.nodes} 个）：${digest.nodes.map(node => `${node.title}:${node.count}`).join('  ')}`)
         if (overflow.nodes > 0) lines.push(`还有 ${overflow.nodes} 个知识点未列出，见 learning/questions.jsonl`)
         lines.push(`待核对：${digest.needsReview.length > 0 ? digest.needsReview.map(item => `${item.id}(${item.flags.join(',')})`).join('  ') : '无'}`)
         if (overflow.needsReview > 0) lines.push(`还有 ${overflow.needsReview} 条待核对未列出`)
-        lines.push(`重复：${digest.duplicates.join(',') || '无'}`)
-        lines.push(`孤儿：${digest.orphans.join(',') || '无'}`)
-        lines.push(`缺答案：${digest.missingAnswer.join(',') || '无'}`)
-        if (overflow.others > 0) lines.push(`其余分类还有 ${overflow.others} 条未列出，见 learning/questions.jsonl`)
+        const category = (label, total, items, extra) => {
+          const head = `${label} ${total ?? items.length}${extra > 0 ? `（列出 ${items.length}）` : ''}`
+          lines.push(`${head}：${items.join(',') || '无'}`)
+        }
+        category('重复', totals.duplicates, digest.duplicates, overflow.duplicates ?? 0)
+        category('孤儿', totals.orphans, digest.orphans, overflow.orphans ?? 0)
+        category('缺答案', totals.missingAnswer, digest.missingAnswer, overflow.missingAnswer ?? 0)
         lines.push(`材料：${digest.materials.join(',') || '无'}`)
-        lines.push(`题库共 ${digest.totals.questions} 题`)
+        lines.push(`题库共 ${totals.questions} 题`)
         return text(lines.join('\n'))
       },
     },

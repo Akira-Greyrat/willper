@@ -336,3 +336,14 @@ test('report 取回最近一份，没有时是 null', async () => {
     assert.ok(got.body.report.markdown.includes('覆盖缺口'))
   })
 })
+test('meta 返回的阶段带 id 与知识点标题', async () => {
+  await withApi(async ({ handler, store }) => {
+    const { meta } = await store.load()
+    meta.tree = [{ id: 'n_1', title: '基础' }]
+    meta.plan = [{ title: '一', nodeIds: ['n_1'] }]
+    await store.saveMeta(meta)
+    const got = await callApi(handler, { op: 'meta', sessionId: 's1' })
+    assert.equal(got.body.plan[0].id, 'p_1')
+    assert.deepEqual(got.body.plan[0].nodeTitles, ['基础'])
+  })
+})

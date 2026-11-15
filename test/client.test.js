@@ -336,6 +336,7 @@ test('抽查弹卡有答题框与三个动作', async () => {
   }
   walk(tree)
   assert.equal(buttons.length, 3)
+  assert.equal(buttons.some(button => button.props['data-active'] === 'true'), false)
 })
 
 test('错题本每行有再答一次与移出', async () => {
@@ -432,6 +433,9 @@ test('计划页显示阶段与状态按钮，空时为引导', async () => {
   }
   walk(tree)
   assert.equal(buttons.length, 3)
+  const active = buttons.filter(button => button.props['data-active'] === 'true')
+  assert.equal(active.length, 1)
+  assert.ok(JSON.stringify(active[0]).includes('stage.doing'))
 
   const empty = List({ stages: [], t: key => key, onStatus() {}, onAsk() {} })
   assert.ok(JSON.stringify(empty).includes('planEmpty'))

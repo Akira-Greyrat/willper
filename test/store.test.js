@@ -326,3 +326,32 @@ test('latestReport 在报告文件被删后返回 null 而不是抛错', async (
     assert.equal(await store.latestReport(), null)
   })
 })
+test('没有 id 的旧计划：按钮不会写到第一个阶段', async () => {
+  await withStore(async store => {
+    const { meta } = await store.load()
+    meta.plan = [{ title: '一' }, { title: '二' }, { title: '三' }]
+    await store.saveMeta(meta)
+    const result = await store.setStageStatus('p_2', 'done')
+    assert.equal(result.plan[1].status, 'done')
+    assert.equal(result.plan[0].status, 'todo')
+    assert.equal(result.plan[2].status, 'todo')
+    await assert.rejects(() => store.setStageStatus(undefined, 'done'), /unknown stage/)
+    await assert.rejects(() => store.setStageStatus('', 'done'), /unknown stage/)
+  })
+})
+test('同一秒内多次写报告不会共用一个文件，索引全部可解析', async () => {
+  await withStore(async store => {
+    const { readFile, access } = await import('node:fs/promises')
+    const { join } = await import('node:path')
+    for (let i = 0; i < 21; i += 1) {
+      await store.saveReport(`# 报告 ${i}`, '2026-11-16T00:00:00.000Z')
+    }
+    const index = JSON.parse(await readFile(join(store.paths.reportsDir, 'index.json'), 'utf8'))
+    assert.equal(index.length, 20)
+    assert.equal(new Set(index.map(entry => entry.file)).size, 20)
+    for (const entry of index) {
+      await access(join(store.paths.reportsDir, entry.file))
+    }
+    assert.ok(index[index.length - 1].file.startsWith('audit-20261116-000000'))
+  })
+})

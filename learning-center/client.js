@@ -1510,11 +1510,15 @@ window.__ModuleLoader__.load({
       const tree = meta && Array.isArray(meta.tree) ? meta.tree : []
       const titles = new Map(tree.map(node => [node.id, node.title]))
       const plan = meta && Array.isArray(meta.plan) ? meta.plan : []
-      return plan.map(stage => ({
-        id: stage.id,
+      return plan.map((stage, index) => ({
+        // The host normalises ids on read; this is the last-resort fallback so a
+        // stage never renders without one.
+        id: typeof stage.id === 'string' && stage.id.length > 0 ? stage.id : `p_${index + 1}`,
         title: typeof stage.title === 'string' ? stage.title : '',
-        status: typeof stage.status === 'string' ? stage.status : 'todo',
-        nodeTitles: (Array.isArray(stage.nodeIds) ? stage.nodeIds : []).map(id => titles.get(id)).filter(Boolean),
+        status: ['todo', 'doing', 'done'].includes(stage.status) ? stage.status : 'todo',
+        nodeTitles: Array.isArray(stage.nodeTitles) && stage.nodeTitles.length > 0
+          ? stage.nodeTitles
+          : (Array.isArray(stage.nodeIds) ? stage.nodeIds : []).map(id => titles.get(id)).filter(Boolean),
         reading: stage.reading ?? [],
         prereqs: Array.isArray(stage.prereqs) ? stage.prereqs : [],
         perspectives: Array.isArray(stage.perspectives) ? stage.perspectives : [],
@@ -1549,6 +1553,16 @@ window.__ModuleLoader__.load({
       const title = typeof project.title === 'string' ? project.title : ''
       const deliverable = typeof project.deliverable === 'string' ? project.deliverable : ''
       return [title, deliverable].filter(part => part.length > 0).join(' — ')
+    }
+
+    /**
+     * @param {*} at - ISO timestamp or anything else.
+     * @returns {string} the time in the reader's own zone, not UTC.
+     */
+    function formatWhen(at) {
+      const date = new Date(at)
+      if (Number.isNaN(date.getTime())) return String(at ?? '')
+      return date.toLocaleString()
     }
 
     /**
@@ -1603,7 +1617,7 @@ window.__ModuleLoader__.load({
           }, report ? t('reportRetake') : t('reportAsk'))),
         report
           ? h('div', null,
-            h('div', { className: 'lc-meta' }, h('span', null, `${t('reportAt')}: ${String(report.at).replace('T', ' ').slice(0, 19)}`)),
+            h('div', { className: 'lc-meta' }, h('span', null, `${t('reportAt')}: ${formatWhen(report.at)}`)),
             h('div', { className: 'lc-report' }, report.markdown))
           : h('p', { className: 'lc-node-sub' }, t('reportEmpty')))
     }

@@ -5,6 +5,8 @@
  * @module @local/learning-center/src/views
  */
 
+import { normalizePlan } from './plan.js'
+
 /**
  * @param {object} q - one question.
  * @returns {boolean} whether the question may be practised.
@@ -121,7 +123,7 @@ export function questionView(questions, terms, id, progress = {}, attempts = [])
 export function planView(meta) {
   const tree = Array.isArray(meta && meta.tree) ? meta.tree : []
   const titles = new Map(tree.map(node => [node.id, node.title]))
-  const plan = Array.isArray(meta && meta.plan) ? meta.plan : []
+  const plan = normalizePlan(meta && meta.plan)
   const stages = plan.map(stage => ({
     id: stage.id,
     title: typeof stage.title === 'string' ? stage.title : '',
