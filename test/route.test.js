@@ -252,3 +252,65 @@ test('updateQuestion 改坏必填字段时 400 且库不变', async () => {
     assert.equal(row.stem, '原题？')
   })
 })
+
+test('attempt start 落盘、get 取回', async () => {
+  await withApi(async ({ handler }) => {
+    const start = await callApi(handler, { op: 'attempt', sessionId: 's1', params: { action: 'start', questionId: 'q1', answer: '我的答案', kind: 'study' } })
+    assert.equal(start.status, 200)
+    const got = await callApi(handler, { op: 'attempt', sessionId: 's1', params: { action: 'get', attemptId: start.body.attemptId } })
+    assert.equal(got.status, 200)
+    assert.equal(got.body.attempt.answer, '我的答案')
+    assert.equal(got.body.attempt.grade, null)
+  })
+})
+
+test('空答案是 400，未知 attempt 是 404', async () => {
+  await withApi(async ({ handler }) => {
+    const empty = await callApi(handler, { op: 'attempt', sessionId: 's1', params: { action: 'start', questionId: 'q1', answer: '   ', kind: 'study' } })
+    assert.equal(empty.status, 400)
+    const missing = await callApi(handler, { op: 'attempt', sessionId: 's1', params: { action: 'get', attemptId: 'a_nope' } })
+    assert.equal(missing.status, 404)
+  })
+})
+
+test('quiz 在冷却内不抽，过期后抽中并写下 lastQuizAt', async () => {
+  await withApi(async ({ handler, store }) => {
+    await writeJsonl(store.paths.questions, [{ id: 'q1', key: 'k1', stem: '什么是闭包？', nodeId: 'n_1', status: 'ok', flags: [], reference: { answer: 'a', points: ['a'] }, source: { file: 'm.md' }, tags: [], related: { questions: [], deeper: [], broader: [] }, createdAt: 'T0', updatedAt: 'T0' }])
+    const row = { id: 'q1' }
+    const attempt = await store.createAttempt({ questionId: row.id, answer: 'x', kind: 'study' })
+    await store.gradeAttempt(attempt.id, { covered: [], missed: ['a'] })
+
+    const meta = (await store.load()).meta
+    meta.settings.leavePromptRate = 1
+    meta.settings.quizCooldownMinutes = 10
+    meta.settings.lastQuizAt = new Date().toISOString()
+    await store.saveMeta(meta)
+
+    const cooled = await callApi(handler, { op: 'quiz', sessionId: 's1' })
+    assert.equal(cooled.status, 200)
+    assert.equal(cooled.body.question, null)
+
+    const meta2 = (await store.load()).meta
+    meta2.settings.lastQuizAt = '2000-01-01T00:00:00.000Z'
+    await store.saveMeta(meta2)
+
+    const hit = await callApi(handler, { op: 'quiz', sessionId: 's1' })
+    assert.equal(hit.body.question.id, row.id)
+    assert.notEqual((await store.load()).meta.settings.lastQuizAt, '2000-01-01T00:00:00.000Z')
+  })
+})
+
+test('weak 与 setDismissed', async () => {
+  await withApi(async ({ handler, store }) => {
+    await writeJsonl(store.paths.questions, [{ id: 'q1', key: 'k1', stem: '什么是闭包？', nodeId: 'n_1', status: 'ok', flags: [], reference: { answer: 'a', points: ['a'] }, source: { file: 'm.md' }, tags: [], related: { questions: [], deeper: [], broader: [] }, createdAt: 'T0', updatedAt: 'T0' }])
+    const row = { id: 'q1' }
+    const attempt = await store.createAttempt({ questionId: row.id, answer: 'x', kind: 'study' })
+    await store.gradeAttempt(attempt.id, { covered: [], missed: ['a'] })
+    const weak = await callApi(handler, { op: 'weak', sessionId: 's1' })
+    assert.equal(weak.body.items.length, 1)
+    const dismissed = await callApi(handler, { op: 'setDismissed', sessionId: 's1', params: { questionId: row.id, on: true } })
+    assert.equal(dismissed.status, 200)
+    const after = await callApi(handler, { op: 'weak', sessionId: 's1' })
+    assert.deepEqual(after.body.items, [])
+  })
+})

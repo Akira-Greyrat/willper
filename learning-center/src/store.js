@@ -15,6 +15,7 @@ import { readJson, readJsonl, writeJson, writeJsonl } from './io.js'
 import { normalizePath, questionKey, validateDraft, validatePatch } from './model.js'
 import { normalizeRelated, resolveRelatedIds } from './related.js'
 import { resolveStore } from './paths.js'
+import { weakView } from './views.js'
 
 /** Statuses the panel may set. */
 const STATUSES = new Set(['ok', 'needs-review', 'rejected'])
@@ -255,6 +256,30 @@ export function createStore(baseDir, rawConfig) {
   }
 
   /**
+   * Decide whether a leave-quiz should appear now, and which question. The
+   * cooldown is stamped on the *decision*, so skipping still cools down.
+   * @param {string} [now] - timestamp, injectable for tests.
+   * @returns {Promise<{id: string, stem: string}|null>} the sampled card, or null.
+   */
+  async function sampleQuiz(now = new Date().toISOString()) {
+    const meta = await readJson(paths.meta, null) ?? emptyMeta(config)
+    const settings = meta.settings ?? emptyMeta(config).settings
+    const cooldownMs = (settings.quizCooldownMinutes ?? 10) * 60000
+    const last = Date.parse(settings.lastQuizAt ?? '')
+    if (Number.isFinite(last) && Date.parse(now) - last < cooldownMs) return null
+    if (Math.random() >= (settings.leavePromptRate ?? 0.15)) return null
+    const questions = await readJsonl(paths.questions)
+    const progress = await readJson(paths.progress, {})
+    const items = weakView(questions, progress).items
+    if (items.length === 0) return null
+    const pool = items.slice(0, 10)
+    const pick = pool[Math.floor(Math.random() * pool.length)]
+    meta.settings = { ...settings, lastQuizAt: now }
+    await writeJson(paths.meta, meta)
+    return { id: pick.id, stem: pick.stem }
+  }
+
+  /**
    * @returns {Promise<object>} the meta settings block.
    */
   async function loadSettings() {
@@ -366,6 +391,7 @@ export function createStore(baseDir, rawConfig) {
     latestAttempt,
     gradeAttempt,
     setDismissed,
+    sampleQuiz,
     loadSettings,
     saveSettings,
     upsertTerms,

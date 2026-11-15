@@ -5,7 +5,7 @@
  * @module @local/learning-center/src/route
  */
 
-import { checklistView, favoritesView, queueView, questionView, treeView } from './views.js'
+import { checklistView, favoritesView, queueView, questionView, treeView, weakView } from './views.js'
 
 /**
  * Read a request body with a hard size cap.
@@ -117,7 +117,7 @@ export function handleApi({ storeFor, promptAgent, listSessions, maxBytes }) {
         send(res, 400, { error: 'unknown op' })
         return
       }
-      send(res, 400, { error: message })
+      send(res, error && error.status ? error.status : 400, { error: message })
     }
   }
 }
@@ -158,8 +158,8 @@ async function dispatch(op, params, sessionId, store, promptAgent, listSessions)
       return queueView(meta, questions, progress, params)
     }
     case 'question': {
-      const { questions, terms, progress } = await store.load()
-      return { question: questionView(questions, terms, params.id, progress) }
+      const { questions, terms, progress, attempts } = await store.load()
+      return { question: questionView(questions, terms, params.id, progress, attempts) }
     }
     case 'checklist': {
       const { questions } = await store.load()
@@ -187,6 +187,36 @@ async function dispatch(op, params, sessionId, store, promptAgent, listSessions)
     case 'updateQuestion': {
       const result = await store.updateQuestion(params.id, params.patch)
       return { ok: true, question: result.question, relatedDropped: result.relatedDropped }
+    }
+    case 'attempt': {
+      if (params.action === 'start') {
+        const answer = typeof params.answer === 'string' ? params.answer.trim() : ''
+        if (answer.length === 0) throw new Error('empty answer')
+        if (typeof params.questionId !== 'string' || params.questionId.length === 0) throw new Error('missing question')
+        const attempt = await store.createAttempt({ questionId: params.questionId, answer, kind: params.kind })
+        return { attemptId: attempt.id }
+      }
+      if (params.action === 'get') {
+        const attempt = await store.getAttempt(params.attemptId)
+        if (!attempt) {
+          const error = new Error('unknown attempt')
+          error.status = 404
+          throw error
+        }
+        return { attempt }
+      }
+      throw new Error('unknown action')
+    }
+    case 'weak': {
+      const { questions, progress } = await store.load()
+      return weakView(questions, progress)
+    }
+    case 'setDismissed': {
+      await store.setDismissed(params.questionId, params.on)
+      return { ok: true }
+    }
+    case 'quiz': {
+      return { question: await store.sampleQuiz() }
     }
     case 'prompt': {
       if (typeof params.text !== 'string' || params.text.trim().length === 0) {
