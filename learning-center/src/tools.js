@@ -6,6 +6,7 @@
  */
 
 import { readdir } from 'node:fs/promises'
+import { auditDigest } from './audit.js'
 import { needsSuggestion } from './grading.js'
 import { normalizePlan } from './plan.js'
 import { treeView } from './views.js'
@@ -277,5 +278,46 @@ export function toolDefinitions(storeFor) {
     },
   })
 
-  return [status, plan, importTool, question, grade]
+  const audit = withRender({
+    name: 'learning_audit',
+    description: 'Audit the question bank against the learning target. Call `brief` for a bounded digest (per-topic counts, flagged questions, duplicates, orphans, missing answers) plus the report requirements; then read `learning/questions.jsonl` for detail and call `write` with the finished markdown report.',
+    parameters: {
+      action: { type: 'string', required: true, enum: ['brief', 'write'], description: 'brief = digest + rules; write = store the report.' },
+      markdown: { type: 'string', description: 'For write: the full report body.' },
+    },
+    output: {
+      schema: OBJECT_OUTPUT,
+      render: (_args, value) => text(value.file ? `已生成报告 ${value.file}` : `题库 ${value.digest.totals.questions} 题，${value.digest.totals.nodes} 个知识点`),
+    },
+    async execute(args, exec) {
+      const store = await storeFor(exec.agent)
+      if (args.action === 'brief') {
+        const { meta, questions } = await store.load()
+        let materials = []
+        try {
+          materials = (await readdir(store.paths.materialsDir)).map(name => `materials/${name}`)
+        } catch {
+          materials = []
+        }
+        return {
+          files: { questions: 'learning/questions.jsonl', materials: 'learning/materials/', reports: 'learning/reports/' },
+          digest: auditDigest({ meta, questions, materials }),
+          instructions: [
+            '按这六类体检：覆盖缺口（零题或题太少的知识点）、重复、可疑过时、跑出范围、缺答案、答案存疑。',
+            '每类最多 5 条，必须点出题号或知识点；没有就写"无"。',
+            '报告用 markdown，开头一句总体判断；结尾必须给"下一步三件事"。',
+            '每条结论后面注明它对应的题目状态（ok / needs-review / rejected / orphaned）。',
+            '摘要只列到上限；要看全量就读 learning/questions.jsonl。',
+          ].join('\n'),
+        }
+      }
+      if (args.action === 'write') {
+        const result = await store.saveReport(args.markdown)
+        return { ok: true, ...result }
+      }
+      throw new Error(`unknown action: ${String(args.action)}`)
+    },
+  })
+
+  return [status, plan, importTool, question, grade, audit]
 }

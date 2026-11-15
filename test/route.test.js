@@ -314,3 +314,25 @@ test('weak 与 setDismissed', async () => {
     assert.deepEqual(after.body.items, [])
   })
 })
+test('setStageStatus 改状态，未知阶段 400', async () => {
+  await withApi(async ({ handler, store }) => {
+    const { meta } = await store.load()
+    meta.plan = [{ id: 'p_1', title: '一', status: 'todo' }, { id: 'p_2', title: '二', status: 'todo' }]
+    await store.saveMeta(meta)
+    const ok = await callApi(handler, { op: 'setStageStatus', sessionId: 's1', params: { stageId: 'p_2', status: 'done' } })
+    assert.equal(ok.status, 200)
+    assert.equal(ok.body.plan.find(stage => stage.id === 'p_2').status, 'done')
+    const bad = await callApi(handler, { op: 'setStageStatus', sessionId: 's1', params: { stageId: 'p_9', status: 'done' } })
+    assert.equal(bad.status, 400)
+  })
+})
+
+test('report 取回最近一份，没有时是 null', async () => {
+  await withApi(async ({ handler, store }) => {
+    const empty = await callApi(handler, { op: 'report', sessionId: 's1' })
+    assert.equal(empty.body.report, null)
+    await store.saveReport('# 体检\n覆盖缺口 1 个', '2026-11-16T00:00:00.000Z')
+    const got = await callApi(handler, { op: 'report', sessionId: 's1' })
+    assert.ok(got.body.report.markdown.includes('覆盖缺口'))
+  })
+})

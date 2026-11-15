@@ -218,6 +218,13 @@ async function dispatch(op, params, sessionId, store, promptAgent, listSessions)
     case 'quiz': {
       return { question: await store.sampleQuiz() }
     }
+    case 'setStageStatus': {
+      const result = await store.setStageStatus(params.stageId, params.status)
+      return { ok: true, plan: result.plan }
+    }
+    case 'report': {
+      return { report: await store.latestReport() }
+    }
     case 'prompt': {
       if (typeof params.text !== 'string' || params.text.trim().length === 0) {
         throw new Error('empty prompt')

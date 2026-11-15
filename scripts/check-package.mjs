@@ -119,7 +119,7 @@ for (const op of clientOps) if (!routeOps.has(op)) fail(`面板调用了路由�
 
 const toolsSource = await readFile(join(root, 'src/tools.js'), 'utf8')
 const toolNames = [...toolsSource.matchAll(/name: '(learning_[a-z]+)'/g)].map(match => match[1])
-if (new Set(toolNames).size !== 5) fail(`工具数量不是 5：${toolNames.join(',')}`)
+if (new Set(toolNames).size !== 6) fail(`工具数量不是 6：${toolNames.join(',')}`)
 
 notes.push(`路由 op：${[...routeOps].sort().join(', ')}`)
 notes.push(`工具：${toolNames.join(', ')}`)

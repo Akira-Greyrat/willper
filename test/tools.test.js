@@ -17,7 +17,7 @@ const call = (tool, args) => tool.execute(args, { agent })
 
 test('四个工具都带 name/description/parameters/output/execute', () => {
   const defs = toolDefinitions(() => null)
-  assert.deepEqual(defs.map(d => d.name).sort(), ['learning_grade', 'learning_import', 'learning_plan', 'learning_question', 'learning_status'])
+  assert.deepEqual(defs.map(d => d.name).sort(), ['learning_audit', 'learning_grade', 'learning_import', 'learning_plan', 'learning_question', 'learning_status'])
   for (const def of defs) {
     assert.ok(def.description.length > 10)
     assert.equal(typeof def.execute, 'function')
@@ -230,5 +230,27 @@ test('learning_plan 的说明里给出阶段形状', async () => {
     assert.ok(text.includes('reading'))
     assert.ok(text.includes('checkpoints'))
     assert.ok(text.includes('todo'))
+  })
+})
+test('learning_audit brief 给出摘要与文件路径', async () => {
+  await wire(async ({ tools }) => {
+    const r = await call(tools.learning_audit, { action: 'brief' })
+    assert.ok(r.instructions.includes('下一步三件事'))
+    assert.ok(Array.isArray(r.digest.nodes))
+    assert.ok(r.files.questions.endsWith('questions.jsonl'))
+  })
+})
+
+test('learning_audit write 落盘并返回文件', async () => {
+  await wire(async ({ tools, store }) => {
+    const written = await call(tools.learning_audit, { action: 'write', markdown: '# 体检\n覆盖缺口 2 个' })
+    assert.ok(written.file.startsWith('audit-'))
+    assert.equal((await store.latestReport()).markdown.includes('覆盖缺口'), true)
+  })
+})
+
+test('learning_audit write 拒绝空报告', async () => {
+  await wire(async ({ tools }) => {
+    await assert.rejects(() => call(tools.learning_audit, { action: 'write', markdown: '  ' }), /empty report/)
   })
 })
