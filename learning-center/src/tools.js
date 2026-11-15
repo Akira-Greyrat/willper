@@ -7,6 +7,7 @@
 
 import { readdir } from 'node:fs/promises'
 import { needsSuggestion } from './grading.js'
+import { normalizePlan } from './plan.js'
 import { treeView } from './views.js'
 
 /** Platform-neutral wording for the three draft files an import needs. */
@@ -83,7 +84,7 @@ export function toolDefinitions(storeFor) {
       action: { type: 'string', required: true, enum: ['get', 'set_target', 'upsert_tree', 'set_plan'], description: 'Which part to read or replace.' },
       target: { type: 'object', description: 'For set_target: { title, statement, level }.' },
       nodes: { type: 'array', description: 'For upsert_tree: knowledge nodes { id, parentId?, title, weight?, order? }.', items: { type: 'object' } },
-      plan: { type: 'array', description: 'For set_plan: stages { id, title, nodeIds, reading, prereqs, project, checkpoints, status }.', items: { type: 'object' } },
+      plan: { type: 'array', description: 'For set_plan: stages { id?, title, nodeIds?, reading?: [{ file, section?, pages? }], prereqs?: string[], perspectives?: string[], project?: { title, deliverable? }, checkpoints?: string[], status?: "todo" | "doing" | "done" }. Ids are assigned by the host when omitted; status defaults to todo.', items: { type: 'object' } },
     },
     output: {
       schema: OBJECT_OUTPUT,
@@ -121,7 +122,7 @@ export function toolDefinitions(storeFor) {
           return { ok: true, nodeCount: meta.tree.length }
         }
         case 'set_plan': {
-          meta.plan = Array.isArray(args.plan) ? args.plan : []
+          meta.plan = normalizePlan(args.plan)
           await store.saveMeta(meta)
           return { ok: true, stageCount: meta.plan.length }
         }

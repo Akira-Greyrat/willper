@@ -214,3 +214,21 @@ test('learning_grade open 的渲染行要把题干、答案与要点交给模型
     assert.ok(text.includes('我答了'))
   })
 })
+test('set_plan 写入时补齐阶段 id 与默认状态', async () => {
+  await wire(async ({ tools, store }) => {
+    const result = await call(tools.learning_plan, { action: 'set_plan', plan: [{ title: '一' }, { title: '二' }] })
+    assert.equal(result.stageCount, 2)
+    const plan = (await store.load()).meta.plan
+    assert.deepEqual(plan.map(stage => stage.id), ['p_1', 'p_2'])
+    assert.deepEqual(plan.map(stage => stage.status), ['todo', 'todo'])
+  })
+})
+
+test('learning_plan 的说明里给出阶段形状', async () => {
+  await wire(async ({ tools }) => {
+    const text = `${tools.learning_plan.description} ${JSON.stringify(tools.learning_plan.parameters)}`
+    assert.ok(text.includes('reading'))
+    assert.ok(text.includes('checkpoints'))
+    assert.ok(text.includes('todo'))
+  })
+})
