@@ -74,22 +74,37 @@
 
 `progress.json` 每题多两个可选字段：`dismissed`（从错题本移出，只是标记）、`lastKind`。
 
+**冷却时钟**：`meta.settings.lastQuizAt`（ISO 时间）。**在弹卡的那一刻写**，不是答完才写——跳过的抽查也要冷却，否则下次切题立刻又弹。这给 `meta.settings` 新增一个字段，是本批唯一的结构变化。
+
 ## 六、工具与路由
 
-新增一个 agent 工具：
+新增一个 agent 工具，**两个动作**（评审指出：模型必须先拿到题与答案才能判，而消息里只许带一行）：
 
-| 工具 | 参数 | 作用 |
+| 工具 | 参数 | 返回 |
 | --- | --- | --- |
-| `learning_grade` | `{ attemptId, covered: string[], missed: string[], wrong: string[], feedback }` | 读这次作答与题目参考答案，校验判分结构，算 `score`，写回 `attempts.jsonl` 的该行并更新 `progress`。返回 `{ ok, score, misses }` |
+| `learning_grade` `open` | `{ action: 'open', attemptId }` | `{ question: { id, stem, answer, points }, attempt: { id, kind, answer, at } }` |
+| `learning_grade` `submit` | `{ action: 'submit', attemptId, covered: string[], missed: string[], wrong: string[], feedback }` | `{ ok, score, misses }` |
 
-路由新增三个 op：
+`submit` 的校验（不过就整条拒绝、不写库）：
+
+- `covered` / `missed` 的元素必须**逐字**是 `reference.points` 里的条目；
+- 两者并集必须等于全部要点、交集为空——漏写的要点按"漏"算，不允许悄悄少判；
+- `wrong` 与 `feedback` 是自由文本，可以为空。
+
+`score = covered / (covered + missed)`；`covered + missed` 为空时 `score = null`，不进错题本。
+
+**重判是幂等的**：同一条 attempt 再提交一次判分，覆盖旧 `grade`，`progress.misses` 按差值调整（旧的不满分 −1、新的不满分 +1），不重复累加。
+
+路由新增四个 op：
 
 | op | 参数 | 返回 |
 | --- | --- | --- |
-| `attempt` | `{ action: 'start', questionId, answer, kind }` | `{ attemptId }` |
+| `attempt` | `{ action: 'start', questionId, answer, kind }` | `{ attemptId }`——写一行 `grade: null` |
 | `attempt` | `{ action: 'get', attemptId }` | `{ attempt }` |
 | `weak` | `{}` | `{ items: [{ id, stem, nodeId, misses, lastScore, lastAttemptAt, dismissed }] }` |
 | `setDismissed` | `{ questionId, on }` | `{ ok }` |
+
+题卡视图（`question` op 的返回值）多一个 `lastAttempt: { id, at, kind, grade } | null`——最近一次作答。这样**判分迟到**（判完你已经翻页或刷新过）也能在回到这题时看到，不必重判。
 
 ## 七、界面与流程
 
@@ -107,9 +122,10 @@
 └──────────────────────────────────────────┘
 ```
 
-- 点「提交并批改」：先把答案落盘（`attempt start`），再发一条**短消息**进会话：`批改答题 a_7f3c2a，按题目要点给覆盖/漏点/说错，用 learning_grade 写回`。会话里只留这一行与 agent 的简短回复，详细的覆盖结果在面板上。
-- 面板每 2 秒拉一次 `attempt get`，拿到 `grade` 就停；90 秒仍未判完就停轮询并显示「AI 还没批完，点刷新再试」。
+- 点「提交并批改」：先把答案落盘（`attempt start`），再发一条**短消息**进会话：`批改答题 a_7f3c2a：先 learning_grade open 取题与答案，再 submit 写回覆盖/漏点/说错`。会话里只留这一行与 agent 的简短回复，详细的覆盖结果在面板上。
+- 面板每 2 秒拉一次 `attempt get`，拿到 `grade` 就停；90 秒仍未判完就停轮询并显示「AI 还没批完，点重试会再发一次批改请求」。**重试是重发消息**，不是重取——模型没调工具时重取没有意义；`submit` 幂等，所以重发不会把 misses 记两遍。
 - 判完显示：命中/漏掉/说错的要点 + 反馈；同一张卡可以"再答一次"（生成新 attempt）。
+- 打开一张以前答过的题时，卡片直接显示 `lastAttempt.grade`（判分迟到也补得回来）。
 - 没有要点的题（`reference.points` 为空）：提交按钮禁用，提示"这题没有要点，无法按要点批改"。
 
 **离开题目时抽查**
@@ -130,9 +146,11 @@
 1. 无要点题：提交按钮禁用并有说明。
 2. 有要点题：提交后先出现「批改中」，AI 判完 90 秒内出现命中/漏点/说错与反馈；面板显示与 `attempts.jsonl` 里的 `grade` 一致。
 3. 同一题再答一次会新增一行 attempt，`progress.misses` 跟着累加。
-4. 抽查：把 `leavePromptRate` 临时设为 1、冷却 0，切题必弹；答完同样自动判；点跳过不产生 attempt。
+4. 抽查：把 `leavePromptRate` 临时设为 1、冷却 0，切题必弹；答完同样自动判；点跳过不产生 attempt，但 `settings.lastQuizAt` 已更新（跳过后进入冷却）。
 5. 错题本：答过没满分的题出现在列表里，按 misses 降序；移出后不再出现，但 `attempts.jsonl` 里的记录还在。
-6. `node --test` 全绿，`scripts/check-package.mjs` 通过。
+6. 判分迟到：提交后立刻切到别的题，等 AI 判完再切回，卡片上应显示这次的判分结果。
+7. 重试：对同一条 attempt 再发一次批改请求并 `submit`，`progress.misses` 不重复累加。
+8. `node --test` 全绿，`scripts/check-package.mjs` 通过。
 
 ## 九、风险
 
