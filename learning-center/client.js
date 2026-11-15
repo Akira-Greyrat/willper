@@ -1560,8 +1560,9 @@ window.__ModuleLoader__.load({
      * @returns {string} the time in the reader's own zone, not UTC.
      */
     function formatWhen(at) {
+      if (at === null || at === undefined) return ''
       const date = new Date(at)
-      if (Number.isNaN(date.getTime())) return String(at ?? '')
+      if (Number.isNaN(date.getTime())) return String(at)
       return date.toLocaleString()
     }
 
@@ -1696,7 +1697,7 @@ window.__ModuleLoader__.load({
         }, props => h(PanelBoundary, { t }, h(Panel, { ...props, layout, t }))))
       },
       /** Rendered-only internals, exposed so the node harness can exercise them. */
-      __test: { PanelBoundary, popoverStyle, Icon, TermPopover, isOutsidePopover, TERM_ACCENT, RelatedChips, GradeBlock, canSubmit, QuizModal, WeakList, QuestionCard, SupplementBlock, gradingStateFor, stillPending, PlanList, ReportPane, stagesFrom },
+      __test: { PanelBoundary, popoverStyle, Icon, TermPopover, isOutsidePopover, TERM_ACCENT, RelatedChips, GradeBlock, canSubmit, QuizModal, WeakList, QuestionCard, SupplementBlock, gradingStateFor, stillPending, PlanList, ReportPane, stagesFrom, formatWhen },
     }
   },
 })

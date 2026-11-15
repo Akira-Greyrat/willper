@@ -459,3 +459,30 @@ test('体检页无报告时给按钮，有报告时显示正文', async () => {
   const filled = Pane({ report: { at: '2026-11-16T00:00:00.000Z', markdown: '覆盖缺口 2 个' }, t: key => key, onAsk() {} })
   assert.ok(JSON.stringify(filled).includes('覆盖缺口 2 个'))
 })
+test('体检时间按本地时区显示，坏输入原样返回', async () => {
+  const { module } = await loadClient()
+  const formatWhen = module.__test && module.__test.formatWhen
+  assert.equal(typeof formatWhen, 'function')
+  assert.ok(formatWhen('2026-11-16T00:00:00.000Z').includes('2026'))
+  assert.equal(formatWhen('not a date'), 'not a date')
+  assert.equal(formatWhen(null), '')
+})
+
+test('stagesFrom 透传宿主解析好的知识点标题，缺 id 时兜底', async () => {
+  const { module } = await loadClient()
+  const stagesFrom = module.__test && module.__test.stagesFrom
+  assert.equal(typeof stagesFrom, 'function')
+  const stages = stagesFrom({
+    tree: [{ id: 'n_1', title: '基础' }],
+    plan: [
+      { id: 'p_1', title: '一', status: 'doing', nodeTitles: ['基础'] },
+      { title: '二', nodeIds: ['n_1'] },
+      { title: '坏状态', status: 'nope' },
+    ],
+  })
+  assert.deepEqual(stages[0].nodeTitles, ['基础'])
+  assert.equal(stages[0].status, 'doing')
+  assert.equal(stages[1].id, 'p_2')
+  assert.deepEqual(stages[1].nodeTitles, ['基础'])
+  assert.equal(stages[2].status, 'todo')
+})

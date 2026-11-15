@@ -16,7 +16,7 @@
 - 测试命令：`& $NODE --test "test/*.test.js"`，`$NODE` = `C:\Users\15318\.dsh\dsh-runtimes\dsh-primary-runtime\dependencies\node\bin\node.exe`。
 - Host 代码不 import 任何 `@deepseek-ai/*`；Client 半仍是单文件 `client.js`。
 - 阶段状态枚举：`todo` / `doing` / `done`，默认 `todo`；阶段 id 形如 `p_1`。
-- 报告文件名 `audit-<yyyyMMdd-HHmmss>.md`；索引最多 20 条，超了删最旧的**文件与索引项**。
+- 报告文件名 `audit-<yyyyMMdd-HHmmss>.md`（同秒重名时加 `-2`/`-3`）；索引最多 20 条，超了先写索引、再删最旧的文件。
 - 体检摘要上限：知识点最多 20 个、待核对最多 40 条、其余各类最多 20 条，超出写"还有 N 条，见 learning/questions.jsonl"。
 - 新增工具后工具总数从 5 变 6：要同步 `scripts/check-package.mjs`、`test/tools.test.js`、`test/apply.test.js` 三处。
 - 提交前缀沿用 `feat:` / `fix:` / `test:` / `docs:`。
@@ -215,7 +215,7 @@ git commit -m "feat: 阶段状态写入与计划视图"
 **Interfaces:**
 - Produces:
   - `auditDigest({ meta, questions, materials }): { nodes: [{id,title,count}], needsReview: [{id,flags}], duplicates: string[], orphans: string[], missingAnswer: string[], overflow: { nodes: number, needsReview: number, others: number } }` —— 纯函数；上限见 Global Constraints；按 id 排序保证稳定。
-  - `store.saveReport(markdown, at?)` → `{ at, file }`：写 `reports/audit-<yyyyMMdd-HHmmss>.md`，维护 `reports/index.json`（按 `at` 升序），超过 20 条时**先删文件再删索引项**。
+  - `store.saveReport(markdown, at?)` → `{ at, file }`：写 `reports/audit-<yyyyMMdd-HHmmss>.md`（重名加后缀），维护 `reports/index.json`（按 `at` 升序），超过 20 条时**先写索引再删文件**（崩溃只会留孤儿文件，不会留悬空索引）。
   - `store.latestReport()` → `{ at, markdown } | null`（索引缺失或文件被删时返回 null）。
 
 - [ ] **Step 1: 写失败测试**
@@ -240,7 +240,7 @@ test('超过上限时报告剩余条数，不假装题库只有这些', () => {
   const questions = Array.from({ length: 30 }, (_, index) => ({ id: `q${index}`, nodeId: 'n_1', status: 'ok', flags: ['duplicate_of:q0'] }))
   const digest = auditDigest({ meta: { tree: [{ id: 'n_1', title: '基础' }] }, questions, materials: [] })
   assert.equal(digest.duplicates.length, 20)
-  assert.equal(digest.overflow.others, 10)
+  assert.equal(digest.overflow.duplicates, 10)
 })
 
 test('saveReport 保留最近 20 份并删掉更旧的文件', async () => {
