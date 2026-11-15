@@ -791,7 +791,7 @@ window.__ModuleLoader__.load({
         if (!sessionId) return
         setBusy(true)
         try {
-          await loadQueue(sessionId, id, next)
+          await loadQueue(sessionId, id, onlyUnseen)
           setError(null)
         } catch (err) {
           fail(err)
