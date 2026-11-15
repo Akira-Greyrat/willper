@@ -175,15 +175,14 @@ test('接受待核对题会清掉 flags', async () => {
   })
 })
 
-test('recordAttempt 追加记录并累计进度', async () => {
+test('两次作答累计 attempts 计数', async () => {
   await withStore(async store => {
-    await store.recordAttempt({ id: 'a_1', questionId: 'q_1', at: 'T1', kind: 'quiz', grade: { score: 0.5 } })
-    await store.recordAttempt({ id: 'a_2', questionId: 'q_1', at: 'T2', kind: 'quiz', grade: { score: 1 } })
+    await store.createAttempt({ questionId: 'q_1', answer: 'a', kind: 'study' })
+    await store.createAttempt({ questionId: 'q_1', answer: 'b', kind: 'quiz' })
     const data = await store.load()
     assert.equal(data.attempts.length, 2)
     assert.equal(data.progress.q_1.attempts, 2)
-    assert.equal(data.progress.q_1.lastScore, 1)
-    assert.equal(data.progress.q_1.misses, 1)
+    assert.equal(data.progress.q_1.lastKind, 'quiz')
   })
 })
 
@@ -225,5 +224,54 @@ test('commitInbox 会用 materials 下的同名 txt 做锚定', async () => {
     assert.equal(report.added, 1)
     const [row] = await readJsonl(store.paths.questions)
     assert.equal(row.status, 'ok')
+  })
+})
+
+test('createAttempt 写一行 grade:null，gradeAttempt 写回并升 misses', async () => {
+  await withStore(async store => {
+    const attempt = await store.createAttempt({ questionId: 'q1', answer: '我的答案', kind: 'study' })
+    assert.match(attempt.id, /^a_[0-9a-f]{8}$/)
+    assert.equal((await store.getAttempt(attempt.id)).grade, null)
+
+    const graded = await store.gradeAttempt(attempt.id, { covered: ['a'], missed: ['b'], feedback: '再补 b' })
+    assert.equal(graded.score, 0.5)
+    assert.deepEqual(graded.attempt.grade.covered, ['a'])
+    assert.equal(graded.attempt.grade.feedback, '再补 b')
+    const progress = (await store.load()).progress
+    assert.equal(progress.q1.misses, 1)
+    assert.equal(progress.q1.lastScore, 0.5)
+  })
+})
+
+test('重判不重复累加 misses', async () => {
+  await withStore(async store => {
+    const attempt = await store.createAttempt({ questionId: 'q1', answer: 'x', kind: 'study' })
+    await store.gradeAttempt(attempt.id, { covered: ['a'], missed: ['b'] })
+    await store.gradeAttempt(attempt.id, { covered: ['a', 'b'], missed: [] })
+    const progress = (await store.load()).progress
+    assert.equal(progress.q1.misses, 0)
+    assert.equal(progress.q1.lastScore, 1)
+  })
+})
+
+test('latestAttempt 取同题最近一行', async () => {
+  await withStore(async store => {
+    const first = await store.createAttempt({ questionId: 'q1', answer: 'a', kind: 'study' })
+    const second = await store.createAttempt({ questionId: 'q1', answer: 'b', kind: 'quiz' })
+    assert.equal((await store.latestAttempt('q1')).id, second.id)
+    assert.notEqual(first.id, second.id)
+    assert.equal(await store.latestAttempt('nope'), null)
+  })
+})
+
+test('setDismissed 与 saveSettings 只动指定键', async () => {
+  await withStore(async store => {
+    await store.setDismissed('q1', true)
+    assert.equal((await store.load()).progress.q1.dismissed, true)
+    const before = (await store.load()).meta.settings
+    await store.saveSettings({ lastQuizAt: 'T1' })
+    const after = (await store.load()).meta.settings
+    assert.equal(after.lastQuizAt, 'T1')
+    assert.equal(after.leavePromptRate, before.leavePromptRate)
   })
 })

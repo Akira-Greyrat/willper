@@ -5,9 +5,11 @@
  * @module @local/learning-center/src/store
  */
 
+import { createHash } from 'node:crypto'
 import { readdir, readFile } from 'node:fs/promises'
 import { basename, extname, join } from 'node:path'
 import { readConfig } from './config.js'
+import { normalizeGrading } from './grading.js'
 import { commitInbox } from './ingest.js'
 import { readJson, readJsonl, writeJson, writeJsonl } from './io.js'
 import { normalizePath, questionKey, validateDraft, validatePatch } from './model.js'
@@ -166,21 +168,110 @@ export function createStore(baseDir, rawConfig) {
    * @param {object} attempt - the attempt record.
    * @returns {Promise<void>} resolves after both writes.
    */
-  async function recordAttempt(attempt) {
+  async function createAttempt({ questionId, answer, kind }) {
+    const at = new Date().toISOString()
+    const text = typeof answer === 'string' ? answer.trim() : ''
+    const id = `a_${createHash('sha1').update(`${questionId}|${at}|${text}`).digest('hex').slice(0, 8)}`
+    const row = { id, questionId, at, kind: kind === 'quiz' ? 'quiz' : 'study', answer: text, grade: null }
     const attempts = await readJsonl(paths.attempts)
-    attempts.push(attempt)
+    attempts.push(row)
     await writeJsonl(paths.attempts, attempts)
     const progress = await readJson(paths.progress, {})
-    const entry = progress[attempt.questionId] ?? {}
-    const score = attempt.grade && typeof attempt.grade.score === 'number' ? attempt.grade.score : null
-    progress[attempt.questionId] = {
+    const entry = progress[questionId] ?? {}
+    progress[questionId] = {
       ...entry,
       attempts: (entry.attempts ?? 0) + 1,
-      lastScore: score,
-      misses: (entry.misses ?? 0) + (score !== null && score < 1 ? 1 : 0),
-      lastAttemptAt: attempt.at,
+      lastAttemptAt: at,
+      lastKind: row.kind,
     }
     await writeJson(paths.progress, progress)
+    return row
+  }
+
+  /**
+   * @param {string} id - attempt id.
+   * @returns {Promise<object|null>} the attempt row, or null.
+   */
+  async function getAttempt(id) {
+    const attempts = await readJsonl(paths.attempts)
+    return attempts.find(attempt => attempt.id === id) ?? null
+  }
+
+  /**
+   * @param {string} questionId - question id.
+   * @returns {Promise<object|null>} the most recent attempt for that question.
+   */
+  async function latestAttempt(questionId) {
+    const attempts = await readJsonl(paths.attempts)
+    const own = attempts.filter(attempt => attempt.questionId === questionId)
+    if (own.length === 0) return null
+    return own.reduce((latest, attempt) => (attempt.at > latest.at ? attempt : latest))
+  }
+
+  /**
+   * Write a grading back onto its attempt. Re-grading replaces the previous
+   * grade and adjusts `misses` by the difference instead of counting twice.
+   * @param {string} id - attempt id.
+   * @param {object} rawGrading - the agent's covered/missed/wrong/feedback/suggestion.
+   * @returns {Promise<{ attempt: object, score: number, misses: number }>} the graded attempt and its effect.
+   */
+  async function gradeAttempt(id, rawGrading) {
+    const grade = normalizeGrading(rawGrading)
+    const attempts = await readJsonl(paths.attempts)
+    const index = attempts.findIndex(attempt => attempt.id === id)
+    if (index === -1) throw new Error(`unknown attempt: ${id}`)
+    const previous = attempts[index]
+    const at = new Date().toISOString()
+    const next = { ...previous, grade: { ...grade, grader: 'ai', at } }
+    attempts[index] = next
+    await writeJsonl(paths.attempts, attempts)
+
+    const progress = await readJson(paths.progress, {})
+    const entry = progress[previous.questionId] ?? {}
+    const before = previous.grade && typeof previous.grade.score === 'number' ? previous.grade.score : null
+    let misses = entry.misses ?? 0
+    if (before !== null && before < 1) misses -= 1
+    if (grade.score < 1) misses += 1
+    progress[previous.questionId] = {
+      ...entry,
+      lastScore: grade.score,
+      misses: Math.max(0, misses),
+      lastAttemptAt: at,
+      lastKind: previous.kind,
+    }
+    await writeJson(paths.progress, progress)
+    return { attempt: next, score: grade.score, misses: progress[previous.questionId].misses }
+  }
+
+  /**
+   * @param {string} questionId - question id.
+   * @param {boolean} on - whether the question leaves the weak list.
+   * @returns {Promise<void>} resolves after the write.
+   */
+  async function setDismissed(questionId, on) {
+    const progress = await readJson(paths.progress, {})
+    progress[questionId] = { ...(progress[questionId] ?? {}), dismissed: on === true }
+    await writeJson(paths.progress, progress)
+  }
+
+  /**
+   * @returns {Promise<object>} the meta settings block.
+   */
+  async function loadSettings() {
+    const meta = await readJson(paths.meta, null)
+    return (meta && meta.settings) || emptyMeta(config).settings
+  }
+
+  /**
+   * Merge a settings patch into `meta.settings`.
+   * @param {object} patch - keys to replace.
+   * @returns {Promise<object>} the merged settings.
+   */
+  async function saveSettings(patch) {
+    const meta = await readJson(paths.meta, null) ?? emptyMeta(config)
+    meta.settings = { ...(meta.settings ?? emptyMeta(config).settings), ...(patch ?? {}) }
+    await writeJson(paths.meta, meta)
+    return meta.settings
   }
 
   /**
@@ -270,7 +361,13 @@ export function createStore(baseDir, rawConfig) {
     markSeen,
     updateQuestion,
     setStatus,
-    recordAttempt,
+    createAttempt,
+    getAttempt,
+    latestAttempt,
+    gradeAttempt,
+    setDismissed,
+    loadSettings,
+    saveSettings,
     upsertTerms,
     materialTexts,
     addQuestion,
