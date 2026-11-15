@@ -407,3 +407,51 @@ test('没有要点的抽查卡不能提交', async () => {
   const enabled = buttons.find(button => JSON.stringify(button).includes('submitGrade'))
   assert.equal(enabled.props.disabled, false)
 })
+test('计划页显示阶段与状态按钮，空时为引导', async () => {
+  const { module } = await loadClient()
+  const List = module.__test && module.__test.PlanList
+  assert.equal(typeof List, 'function')
+  const tree = List({
+    stages: [{ id: 'p_1', title: '第一阶段', status: 'doing', nodeTitles: ['基础'], checkpoints: ['能讲清'], project: { title: '写个计数器', deliverable: '一个脚本' }, reading: [{ file: 'materials/a.md', section: '第 3 节' }], prereqs: ['动态作用域'], perspectives: ['工程视角'] }],
+    t: key => key,
+    onStatus() {},
+    onAsk() {},
+  })
+  const text = JSON.stringify(tree)
+  assert.ok(text.includes('第一阶段'))
+  assert.ok(text.includes('基础'))
+  assert.ok(text.includes('写个计数器'))
+  assert.ok(text.includes('materials/a.md'))
+  assert.ok(text.includes('动态作用域'))
+  const buttons = []
+  const walk = node => {
+    if (Array.isArray(node)) { for (const item of node) walk(item); return }
+    if (!node || typeof node !== 'object') return
+    if (node.type === 'button') buttons.push(node)
+    for (const child of node.children ?? []) walk(child)
+  }
+  walk(tree)
+  assert.equal(buttons.length, 3)
+
+  const empty = List({ stages: [], t: key => key, onStatus() {}, onAsk() {} })
+  assert.ok(JSON.stringify(empty).includes('planEmpty'))
+})
+
+test('计划页兼容字符串形状的 reading 与 project', async () => {
+  const { module } = await loadClient()
+  const List = module.__test.PlanList
+  const tree = List({ stages: [{ id: 'p_1', title: '一', status: 'todo', nodeTitles: [], checkpoints: [], reading: '第 3-5 节', project: '写个计数器', prereqs: [], perspectives: [] }], t: key => key, onStatus() {}, onAsk() {} })
+  const text = JSON.stringify(tree)
+  assert.ok(text.includes('第 3-5 节'))
+  assert.ok(text.includes('写个计数器'))
+})
+
+test('体检页无报告时给按钮，有报告时显示正文', async () => {
+  const { module } = await loadClient()
+  const Pane = module.__test && module.__test.ReportPane
+  assert.equal(typeof Pane, 'function')
+  const empty = Pane({ report: null, t: key => key, onAsk() {} })
+  assert.ok(JSON.stringify(empty).includes('reportEmpty'))
+  const filled = Pane({ report: { at: '2026-11-16T00:00:00.000Z', markdown: '覆盖缺口 2 个' }, t: key => key, onAsk() {} })
+  assert.ok(JSON.stringify(filled).includes('覆盖缺口 2 个'))
+})

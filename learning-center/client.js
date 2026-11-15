@@ -76,6 +76,24 @@ window.__ModuleLoader__.load({
       weakMisses: '漏点',
       weakLastScore: '上次',
       weakDismiss: '移出',
+      plan: '计划',
+      planEmpty: '还没有阶段计划。让 AI 按你的目标排一版。',
+      planAsk: '让 AI 写阶段计划',
+      planAskPrompt: '请用 learning_plan set_plan 写一份阶段计划：3-5 个阶段，每阶段给 title、nodeIds（用树里的知识点 id）、reading（[{file, section}]）、prereqs、perspectives、project（{title, deliverable}）、checkpoints，status 统一 todo。',
+      planNodes: '知识点',
+      planReading: '该读',
+      planPrereqs: '要补',
+      planPerspectives: '新视角',
+      planProject: '实践项目',
+      'stage.todo': '未开始',
+      'stage.doing': '进行中',
+      'stage.done': '已完成',
+      report: '体检',
+      reportEmpty: '还没有体检报告。',
+      reportAsk: '让 AI 体检题库',
+      reportRetake: '重新体检',
+      reportAt: '生成于',
+      reportAskPrompt: '请体检这个题库：先学习 learning_audit brief 拿摘要与要求，按六类写一份 markdown 报告，再用 learning_audit write 存下来；不用改动题库。',
       noDefinition: '（还没有释义）',
       seenCount: '已读 %s / %s',
       flag: {
@@ -167,6 +185,24 @@ window.__ModuleLoader__.load({
       weakMisses: 'Missed',
       weakLastScore: 'Last',
       weakDismiss: 'Remove',
+      plan: 'Plan',
+      planEmpty: 'No staged plan yet. Ask the AI to lay one out for your target.',
+      planAsk: 'Ask the AI for a plan',
+      planAskPrompt: 'Use learning_plan set_plan to write a staged plan: 3-5 stages, each with title, nodeIds (from the topic tree), reading ([{file, section}]), prereqs, perspectives, project ({title, deliverable}) and checkpoints; status todo.',
+      planNodes: 'Topics',
+      planReading: 'Read',
+      planPrereqs: 'Prerequisites',
+      planPerspectives: 'Perspectives',
+      planProject: 'Project',
+      'stage.todo': 'To do',
+      'stage.doing': 'Doing',
+      'stage.done': 'Done',
+      report: 'Audit',
+      reportEmpty: 'No audit report yet.',
+      reportAsk: 'Ask the AI to audit the bank',
+      reportRetake: 'Audit again',
+      reportAt: 'Generated',
+      reportAskPrompt: 'Audit this question bank: call learning_audit brief for the digest and the rules, write a markdown report for the six categories, then store it with learning_audit write. Do not modify the bank.',
       noDefinition: '(no definition yet)',
       save: 'Save',
       cancel: 'Cancel',
@@ -240,6 +276,7 @@ window.__ModuleLoader__.load({
       .lc-suggestion { margin-top: 8px; padding: 8px 10px; border: 1px dashed var(--dsw-alias-border-l2); border-radius: 8px; white-space: pre-wrap; line-height: 1.6; }
       .lc-supplement { margin-top: 12px; display: flex; flex-direction: column; gap: 6px; }
       .lc-backdrop { position: fixed; inset: 0; background: rgba(0, 0, 0, 0.35); display: flex; align-items: center; justify-content: center; z-index: 80; }
+      .lc-report { white-space: pre-wrap; line-height: 1.75; font-size: 13px; margin-top: 4px; }
       .lc-modal { width: 520px; max-width: calc(100vw - 48px); max-height: calc(100vh - 96px); overflow: auto; background: var(--dsw-alias-bg-layer-1); border: 1px solid var(--dsw-alias-border-l2); border-radius: 12px; padding: 18px 20px; display: flex; flex-direction: column; gap: 10px; }
       .lc-related-row { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
       .lc-related-label { color: var(--dsw-alias-label-secondary); font-size: 12px; margin-right: 2px; }
@@ -536,6 +573,7 @@ window.__ModuleLoader__.load({
       const [quizAttempt, setQuizAttempt] = useState(null)
       const [muted, setMuted] = useState(false)
       const [weak, setWeak] = useState({ items: [] })
+      const [report, setReport] = useState(null)
       const [history, setHistory] = useState([])
       const [revisit, setRevisit] = useState(false)
 
@@ -641,6 +679,7 @@ window.__ModuleLoader__.load({
           await loadBasics(sessionId)
           if (tab === 'bank') setChecklist(await request('checklist', {}, sessionId))
           if (tab === 'favorite') setFavorites(await request('favorites', {}, sessionId))
+          if (tab === 'report') setReport((await request('report', {}, sessionId)).report ?? null)
           if (tab === 'study') {
             // Keep the reader where they were: refresh the open card, only fall
             // back to the queue head when no card is open.
@@ -874,6 +913,17 @@ window.__ModuleLoader__.load({
         }
       }, [sessionId, fail])
 
+      const loadReport = useCallback(async () => {
+        if (!sessionId) return
+        try {
+          const result = await request('report', {}, sessionId)
+          setReport(result.report ?? null)
+        } catch (err) {
+          fail(err)
+        }
+      }, [sessionId, fail])
+
+
       const dismissWeak = useCallback(async id => {
         try {
           await request('setDismissed', { questionId: id, on: true }, sessionId)
@@ -931,11 +981,23 @@ window.__ModuleLoader__.load({
           if (name === 'bank') setChecklist(await request('checklist', {}, sessionId))
           if (name === 'favorite') setFavorites(await request('favorites', {}, sessionId))
           if (name === 'weak') await loadWeak()
+          if (name === 'report') await loadReport()
           setError(null)
         } catch (err) {
           fail(err)
         }
-      }, [tab, maybeQuiz, sessionId, loadWeak, fail])
+      }, [tab, maybeQuiz, sessionId, loadWeak, loadReport, fail])
+
+      const changeStageStatus = useCallback(async (stageId, status) => {
+        try {
+          await request('setStageStatus', { stageId, status }, sessionId)
+          const nextMeta = await request('meta', {}, sessionId)
+          setMeta(nextMeta)
+          setError(null)
+        } catch (err) {
+          fail(err)
+        }
+      }, [sessionId, fail])
 
       const setStatus = useCallback(async (id, status) => {
         try {
@@ -966,7 +1028,7 @@ window.__ModuleLoader__.load({
             h('p', { className: 'lc-node-sub' }, loaded ? t('sessionMissing') : t('loading'))))
       }
 
-      const tabs = ['study', 'bank', 'weak', 'favorite']
+      const tabs = ['study', 'bank', 'weak', 'favorite', 'plan', 'report']
 
       const hasTarget = Boolean(meta && meta.target)
       const hasTree = tree.length > 0
@@ -1130,6 +1192,14 @@ window.__ModuleLoader__.load({
         ? h(WeakList, { items: weak.items, t, onOpen: openWeak, onDismiss: dismissWeak })
         : null
 
+      const planPane = hasTarget && hasTree && tab === 'plan'
+        ? h(PlanList, { stages: stagesFrom(meta), t, onStatus: changeStageStatus, onAsk: ask })
+        : null
+
+      const reportPane = hasTarget && hasTree && tab === 'report'
+        ? h(ReportPane, { report, t, onAsk: ask })
+        : null
+
       const mainPane = h('div', { className: 'lc-main' },
         hasTarget ? null : h(EmptyState, { t, busy, onSave: saveTarget }),
         hasTarget && !hasTree
@@ -1143,7 +1213,9 @@ window.__ModuleLoader__.load({
         studyPane,
         bankPane,
         weakPane,
-        favoritesPane)
+        favoritesPane,
+        planPane,
+        reportPane)
 
       return h('div', { className: 'lc-root' }, head, toastRow, errorRow,
         h('div', { className: 'lc-body' }, treePane, mainPane),
@@ -1429,6 +1501,114 @@ window.__ModuleLoader__.load({
     }
 
     /**
+     * Build the plan page's rows from `meta`: resolve node ids to titles and
+     * tolerate the string-or-object shapes a model may write.
+     * @param {object|null} meta - target, tree, plan.
+     * @returns {object[]} stages for `PlanList`.
+     */
+    function stagesFrom(meta) {
+      const tree = meta && Array.isArray(meta.tree) ? meta.tree : []
+      const titles = new Map(tree.map(node => [node.id, node.title]))
+      const plan = meta && Array.isArray(meta.plan) ? meta.plan : []
+      return plan.map(stage => ({
+        id: stage.id,
+        title: typeof stage.title === 'string' ? stage.title : '',
+        status: typeof stage.status === 'string' ? stage.status : 'todo',
+        nodeTitles: (Array.isArray(stage.nodeIds) ? stage.nodeIds : []).map(id => titles.get(id)).filter(Boolean),
+        reading: stage.reading ?? [],
+        prereqs: Array.isArray(stage.prereqs) ? stage.prereqs : [],
+        perspectives: Array.isArray(stage.perspectives) ? stage.perspectives : [],
+        project: stage.project ?? null,
+        checkpoints: Array.isArray(stage.checkpoints) ? stage.checkpoints : [],
+      }))
+    }
+
+    /**
+     * @param {*} reading - a string or a list of strings / `{ file, section, pages }`.
+     * @returns {string[]} human lines for the plan page.
+     */
+    function readingLines(reading) {
+      if (typeof reading === 'string') return reading.length > 0 ? [reading] : []
+      if (!Array.isArray(reading)) return []
+      return reading.map(item => {
+        if (typeof item === 'string') return item
+        if (!item || typeof item !== 'object') return ''
+        const parts = [item.file, item.section].filter(part => typeof part === 'string' && part.length > 0)
+        if (Array.isArray(item.pages) && item.pages.length === 2) parts.push(`p${item.pages[0]}-${item.pages[1]}`)
+        return parts.join(' · ')
+      }).filter(line => line.length > 0)
+    }
+
+    /**
+     * @param {*} project - a string or `{ title, deliverable }`.
+     * @returns {string} one line for the plan page.
+     */
+    function projectLine(project) {
+      if (typeof project === 'string') return project
+      if (!project || typeof project !== 'object') return ''
+      const title = typeof project.title === 'string' ? project.title : ''
+      const deliverable = typeof project.deliverable === 'string' ? project.deliverable : ''
+      return [title, deliverable].filter(part => part.length > 0).join(' — ')
+    }
+
+    /**
+     * The plan page: one block per stage, three status buttons.
+     * @param {object} props - component props.
+     * @returns {object} React node.
+     */
+    function PlanList({ stages, t, onStatus, onAsk }) {
+      if (!Array.isArray(stages) || stages.length === 0) {
+        return h('div', { className: 'lc-empty' },
+          h('p', { className: 'lc-node-sub' }, t('planEmpty')),
+          h('div', { className: 'lc-actions' },
+            h('button', { type: 'button', className: 'lc-btn lc-btn-primary', onClick: () => onAsk(t('planAskPrompt')) }, t('planAsk'))))
+      }
+      const statuses = ['todo', 'doing', 'done']
+      return h('div', null, stages.map(stage => h('div', { className: 'lc-card', key: stage.id },
+        h('div', { className: 'lc-actions' },
+          h('h2', { className: 'lc-cardTitle', style: { marginRight: 8 } }, stage.title),
+          statuses.map(status => h('button', {
+            key: status,
+            type: 'button',
+            className: 'lc-btn',
+            'data-active': String(stage.status === status),
+            onClick: () => onStatus(stage.id, status),
+          }, t(`stage.${status}`)))),
+        stage.nodeTitles.length > 0 ? h('div', { className: 'lc-meta' }, h('span', null, `${t('planNodes')}: ${stage.nodeTitles.join(' · ')}`)) : null,
+        readingLines(stage.reading).length > 0
+          ? h('div', { className: 'lc-meta' }, h('span', null, `${t('planReading')}: ${readingLines(stage.reading).join('；')}`))
+          : null,
+        stage.prereqs.length > 0 ? h('div', { className: 'lc-meta' }, h('span', null, `${t('planPrereqs')}: ${stage.prereqs.join('；')}`)) : null,
+        stage.perspectives.length > 0 ? h('div', { className: 'lc-meta' }, h('span', null, `${t('planPerspectives')}: ${stage.perspectives.join('；')}`)) : null,
+        projectLine(stage.project).length > 0
+          ? h('div', { className: 'lc-meta' }, h('span', null, `${t('planProject')}: ${projectLine(stage.project)}`))
+          : null,
+        stage.checkpoints.length > 0
+          ? h('ul', { className: 'lc-points' }, stage.checkpoints.map((checkpoint, index) => h('li', { key: index }, checkpoint)))
+          : null)))
+    }
+
+    /**
+     * The audit page: the newest report, or an invitation to run one.
+     * @param {object} props - component props.
+     * @returns {object} React node.
+     */
+    function ReportPane({ report, t, onAsk }) {
+      return h('div', null,
+        h('div', { className: 'lc-actions' },
+          h('button', {
+            type: 'button',
+            className: 'lc-btn lc-btn-primary',
+            onClick: () => onAsk(t('reportAskPrompt')),
+          }, report ? t('reportRetake') : t('reportAsk'))),
+        report
+          ? h('div', null,
+            h('div', { className: 'lc-meta' }, h('span', null, `${t('reportAt')}: ${String(report.at).replace('T', ' ').slice(0, 19)}`)),
+            h('div', { className: 'lc-report' }, report.markdown))
+          : h('p', { className: 'lc-node-sub' }, t('reportEmpty')))
+    }
+
+    /**
      * First-run form: a target is the one thing the panel cannot invent.
      * @param {{t: Function, busy: boolean, onSave: Function}} props - component props.
      * @returns {object} React node.
@@ -1502,7 +1682,7 @@ window.__ModuleLoader__.load({
         }, props => h(PanelBoundary, { t }, h(Panel, { ...props, layout, t }))))
       },
       /** Rendered-only internals, exposed so the node harness can exercise them. */
-      __test: { PanelBoundary, popoverStyle, Icon, TermPopover, isOutsidePopover, TERM_ACCENT, RelatedChips, GradeBlock, canSubmit, QuizModal, WeakList, QuestionCard, SupplementBlock, gradingStateFor, stillPending },
+      __test: { PanelBoundary, popoverStyle, Icon, TermPopover, isOutsidePopover, TERM_ACCENT, RelatedChips, GradeBlock, canSubmit, QuizModal, WeakList, QuestionCard, SupplementBlock, gradingStateFor, stillPending, PlanList, ReportPane, stagesFrom },
     }
   },
 })
