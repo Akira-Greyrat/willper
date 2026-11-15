@@ -1,4 +1,4 @@
-# 学习中心 v1 · 端到端验收记录
+﻿# 学习中心 v1 · 端到端验收记录
 
 日期：2026-11-14
 环境：DSH Desktop 0.2.2-rc.3，工作目录 `D:\Struggle\Workspace\willper`
@@ -69,7 +69,7 @@
 
 ## v2a · 问题串验收（2026-11-15）
 
-- 137 个测试全绿（v2a 新增 6 个：related 归一化/解析 5 个、入库 3 个、store 1 个、views 2 个、client 2 个，其中部分并入既有文件），包检查通过。
+- 135 个测试全绿（v2a 新增：related 5 个、ingest 3 个、store 1 个、views 2 个、tools 1 个、client 2 个），包检查通过。
 - 真机：在 `learning/` 里放入两条带 `related` 的草稿并调用 `learning_import commit` → `新增 1、合并 1`。检查 `questions.jsonl`：可解析的题干换成了题号 `q_94e7275b`，指不到的题干被丢弃，`deeper`/`broader` 原样入库。
 - 路由：`POST /api/learning {op:"question", id:"q_70dd6b2b"}` 返回 `relatedQuestions: [{ id: "q_94e7275b", stem: "什么是闭包？它解决了什么问题？" }]`，`deeper` 为「闭包捕获的是变量还是值？」。
 - 待人工确认：卡片上三组 chip 的显示与点击、空关联网题目的「让 AI 补这题的关联网」入口。
