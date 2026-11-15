@@ -161,6 +161,69 @@ test('渲染崩溃时显示错误信息而不是白屏', async () => {
   assert.ok(JSON.stringify(tree).includes('boom'), 'the message must be visible')
 })
 
+test('题卡的关联网：有关联时出 chip，全空时出补漏按钮', async () => {
+  const { module } = await loadClient()
+  const Chips = module.__test && module.__test.RelatedChips
+  assert.equal(typeof Chips, 'function')
+  const noop = () => {}
+  const filled = Chips({
+    card: {
+      related: { questions: ['q2'], deeper: ['为什么？'], broader: ['和谁有关？'] },
+      relatedQuestions: [{ id: 'q2', stem: '另一道题的题干' }],
+    },
+    t: key => key,
+    onOpenQuestion: noop,
+    onAsk: noop,
+    onFill: noop,
+  })
+  const filledText = JSON.stringify(filled)
+  assert.ok(filledText.includes('另一道题的题干'))
+  assert.ok(filledText.includes('为什么？'))
+  assert.ok(filledText.includes('和谁有关？'))
+
+  const empty = Chips({
+    card: { related: { questions: [], deeper: [], broader: [] }, relatedQuestions: [] },
+    t: key => key,
+    onOpenQuestion: noop,
+    onAsk: noop,
+    onFill: noop,
+  })
+  assert.ok(JSON.stringify(empty).includes('relatedFill'))
+})
+
+test('关联网 chip 点击把对应内容交出去', async () => {
+  const { module } = await loadClient()
+  const Chips = module.__test && module.__test.RelatedChips
+  const opened = []
+  const asked = []
+  const tree = Chips({
+    card: {
+      related: { questions: ['q2'], deeper: ['为什么？'], broader: [] },
+      relatedQuestions: [{ id: 'q2', stem: '另一道题' }],
+    },
+    t: key => key,
+    onOpenQuestion: id => opened.push(id),
+    onAsk: text => asked.push(text),
+    onFill: () => {},
+  })
+  const buttons = []
+  const walk = node => {
+    if (Array.isArray(node)) {
+      for (const item of node) walk(item)
+      return
+    }
+    if (!node || typeof node !== 'object') return
+    if (node.type === 'button') buttons.push(node)
+    for (const child of node.children ?? []) walk(child)
+  }
+  walk(tree)
+  assert.equal(buttons.length, 2)
+  buttons[0].props.onClick()
+  buttons[1].props.onClick()
+  assert.deepEqual(opened, ['q2'])
+  assert.deepEqual(asked, ['为什么？'])
+})
+
 test('点浮窗外部才关闭，点术语本身交给术语自己切换', async () => {
   const { module } = await loadClient()
   const isOutside = module.__test && module.__test.isOutsidePopover

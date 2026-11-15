@@ -48,6 +48,11 @@ window.__ModuleLoader__.load({
       refresh: '刷新',
       importHint: '在对话里用 /learn import <材料文件> 导入题库。',
       emptyChecklist: '没有待核对的题。',
+      relatedOpen: '关联',
+      relatedDeeper: '往深',
+      relatedBroader: '往宽',
+      relatedFill: '让 AI 补这题的关联网',
+      relatedGone: '这道关联题已经不在题库里了。',
       noDefinition: '（还没有释义）',
       seenCount: '已读 %s / %s',
       flag: {
@@ -111,6 +116,11 @@ window.__ModuleLoader__.load({
       editPrompt: 'New stem (empty cancels):',
       emptyBank: 'The bank is empty. Ask the AI to import one.',
       emptyChecklist: 'No flagged questions.',
+      relatedOpen: 'Related',
+      relatedDeeper: 'Deeper',
+      relatedBroader: 'Broader',
+      relatedFill: 'Ask the AI to relate this question',
+      relatedGone: 'That related question is no longer in the bank.',
       noDefinition: '(no definition yet)',
       save: 'Save',
       cancel: 'Cancel',
@@ -177,6 +187,9 @@ window.__ModuleLoader__.load({
       .lc-error { color: var(--dsw-alias-state-error-primary); }
       .lc-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 0; border-bottom: 1px solid var(--dsw-alias-border-l1); }
       .lc-row:last-child { border-bottom: 0; }
+      .lc-related { margin-top: 14px; display: flex; flex-direction: column; gap: 6px; }
+      .lc-related-row { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+      .lc-related-label { color: var(--dsw-alias-label-secondary); font-size: 12px; margin-right: 2px; }
       .lc-flags { color: var(--dsw-alias-state-warn-primary); font-size: 12px; }
       .lc-stack { white-space: pre-wrap; font-size: 12px; color: var(--dsw-alias-label-secondary); }
       .lc-flag-list { color: var(--dsw-alias-label-secondary); font-size: 12px; }
@@ -641,6 +654,29 @@ window.__ModuleLoader__.load({
         }
       }, [sessionId, revisit, loadQueue, fail])
 
+      const openQuestion = useCallback(async id => {
+        if (!sessionId) return
+        try {
+          const detail = await request('question', { id }, sessionId)
+          if (!detail.question) {
+            setError(t('relatedGone'))
+            return
+          }
+          setCard(detail.question)
+          setAnswerOpen(false)
+          setOpenTerm(null)
+          setError(null)
+        } catch (err) {
+          fail(err)
+        }
+      }, [sessionId, t, fail])
+
+      const fillRelated = useCallback(() => {
+        if (!card) return
+        const text = `请用 learning_question update 给题号 ${card.id} 补 related：questions 写题库里另一道题的题干原文（最多 3 条），deeper 与 broader 各写 1-3 条你自己的问题，写完告诉我。`
+        ask(text)
+      }, [card, ask])
+
       const toggleFavorite = useCallback(async () => {
         if (!sessionId || !card) return
         try {
@@ -800,6 +836,13 @@ window.__ModuleLoader__.load({
               onRevisit: toggleRevisit,
               onFavorite: toggleFavorite,
             }),
+            h(RelatedChips, {
+              card,
+              t,
+              onOpenQuestion: openQuestion,
+              onAsk: ask,
+              onFill: fillRelated,
+            }),
             popover)
           : h('div', null,
             h('p', { className: 'lc-node-sub' }, nodeHasQuestions ? t('allSeen') : t('noQuestions')),
@@ -893,6 +936,57 @@ window.__ModuleLoader__.load({
     }
 
     /**
+     * The related rows under a card: same-bank questions to jump to, deeper and
+     * broader questions to ask the agent. An empty block offers one button that
+     * asks the agent to fill it for this question.
+     * @param {{card: object, t: Function, onOpenQuestion: Function, onAsk: Function, onFill: Function}} props - component props.
+     * @returns {object} React node.
+     */
+    function RelatedChips({ card, t, onOpenQuestion, onAsk, onFill }) {
+      const related = (card && card.related) || { questions: [], deeper: [], broader: [] }
+      const questions = (card && card.relatedQuestions) || []
+      const deeper = Array.isArray(related.deeper) ? related.deeper : []
+      const broader = Array.isArray(related.broader) ? related.broader : []
+      if (questions.length === 0 && deeper.length === 0 && broader.length === 0) {
+        return h('div', { className: 'lc-related' },
+          h('button', { type: 'button', className: 'lc-btn', onClick: onFill }, t('relatedFill')))
+      }
+      /**
+       * @param {string} label - row label.
+       * @param {object[]} chips - chip buttons.
+       * @returns {object} one labelled row.
+       */
+      const row = (label, chips) => h('div', { className: 'lc-related-row' },
+        h('span', { className: 'lc-related-label' }, label),
+        chips)
+      return h('div', { className: 'lc-related' },
+        questions.length > 0
+          ? row(t('relatedOpen'), questions.map(item => h('button', {
+            key: item.id,
+            type: 'button',
+            className: 'lc-btn',
+            onClick: () => onOpenQuestion(item.id),
+          }, item.stem.length > 24 ? `${item.stem.slice(0, 24)}…` : item.stem)))
+          : null,
+        deeper.length > 0
+          ? row(t('relatedDeeper'), deeper.map((text, index) => h('button', {
+            key: `d${index}`,
+            type: 'button',
+            className: 'lc-btn',
+            onClick: () => onAsk(text),
+          }, text)))
+          : null,
+        broader.length > 0
+          ? row(t('relatedBroader'), broader.map((text, index) => h('button', {
+            key: `b${index}`,
+            type: 'button',
+            className: 'lc-btn',
+            onClick: () => onAsk(text),
+          }, text)))
+          : null)
+    }
+
+    /**
      * First-run form: a target is the one thing the panel cannot invent.
      * @param {{t: Function, busy: boolean, onSave: Function}} props - component props.
      * @returns {object} React node.
@@ -966,7 +1060,7 @@ window.__ModuleLoader__.load({
         }, props => h(PanelBoundary, { t }, h(Panel, { ...props, layout, t }))))
       },
       /** Rendered-only internals, exposed so the node harness can exercise them. */
-      __test: { PanelBoundary, popoverStyle, Icon, TermPopover, isOutsidePopover, TERM_ACCENT },
+      __test: { PanelBoundary, popoverStyle, Icon, TermPopover, isOutsidePopover, TERM_ACCENT, RelatedChips },
     }
   },
 })
