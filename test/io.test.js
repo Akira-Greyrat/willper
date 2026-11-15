@@ -58,3 +58,19 @@ test('moveInto 遇重名加后缀，不覆盖已有文件', async () => {
   assert.equal(moved, join(to, 'questions-1.jsonl'))
   assert.deepEqual(await readJsonl(join(to, 'questions.jsonl')), [{ old: true }])
 })
+
+test('BOM 开头的 JSON 也能解析', async () => {
+  const dir = await tempDir()
+  const file = join(dir, 'bom.json')
+  const { writeFile } = await import('node:fs/promises')
+  await writeFile(file, '\uFEFF{"a":1}', 'utf8')
+  assert.deepEqual(await readJson(file, null), { a: 1 })
+})
+
+test('JSONL 首行的 BOM 也去掉', async () => {
+  const dir = await tempDir()
+  const file = join(dir, 'bom.jsonl')
+  const { writeFile } = await import('node:fs/promises')
+  await writeFile(file, '\uFEFF{"a":1}\n{"b":2}\n', 'utf8')
+  assert.deepEqual(await readJsonl(file), [{ a: 1 }, { b: 2 }])
+})

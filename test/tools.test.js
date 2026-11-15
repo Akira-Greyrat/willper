@@ -201,3 +201,16 @@ test('brief 要求写补充答案', async () => {
     assert.ok(r.instructions.includes('supplement'))
   })
 })
+test('learning_grade open 的渲染行要把题干、答案与要点交给模型', async () => {
+  await wire(async ({ tools }) => {
+    const rendered = tools.learning_grade.output.render({}, {
+      question: { id: 'q1', stem: '什么是闭包？', answer: '组合', points: ['函数', '词法环境'], supplement: '陷阱在 this' },
+      attempt: { id: 'a1', kind: 'study', answer: '我答了', at: 'T0' },
+    })
+    const text = rendered.map(part => part.text).join('\n')
+    assert.ok(text.includes('什么是闭包？'))
+    assert.ok(text.includes('组合'))
+    assert.ok(text.includes('词法环境'))
+    assert.ok(text.includes('我答了'))
+  })
+})

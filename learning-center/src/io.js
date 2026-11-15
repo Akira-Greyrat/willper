@@ -17,6 +17,14 @@ export async function ensureDir(dir) {
 }
 
 /**
+ * @param {string} text - file text.
+ * @returns {string} the text without a leading UTF-8 BOM.
+ */
+function stripBom(text) {
+  return text.charCodeAt(0) === 0xfeff ? text.slice(1) : text
+}
+
+/**
  * Read one JSON file.
  * @param {string} file - absolute path.
  * @param {*} fallback - returned when the file does not exist.
@@ -30,7 +38,7 @@ export async function readJson(file, fallback) {
     if (error && error.code === 'ENOENT') return fallback
     throw error
   }
-  return JSON.parse(text)
+  return JSON.parse(stripBom(text))
 }
 
 /**
@@ -60,7 +68,7 @@ export async function readJsonl(file) {
     throw error
   }
   const rows = []
-  for (const line of text.split('\n')) {
+  for (const line of stripBom(text).split('\n')) {
     if (line.trim().length === 0) continue
     rows.push(JSON.parse(line))
   }

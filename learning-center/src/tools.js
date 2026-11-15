@@ -226,7 +226,22 @@ export function toolDefinitions(storeFor) {
     },
     output: {
       schema: OBJECT_OUTPUT,
-      render: (_args, value) => text(value.score === undefined ? `题目 ${value.question.id}` : `已批改：得分 ${value.score}`),
+      // `open` must hand the model everything it needs to judge: the rendered
+      // text is the only part of a tool result the model reads.
+      render: (_args, value) => {
+        if (!value || !value.question) return text(`已批改：得分 ${value.score}`)
+        const question = value.question
+        const lines = [
+          `题目：${question.stem}`,
+          `参考答案：${question.answer || '（无）'}`,
+          `要点：${Array.isArray(question.points) && question.points.length > 0
+            ? question.points.map((point, index) => `${index + 1}) ${point}`).join('  ')
+            : '（无）'}`,
+        ]
+        if (question.supplement) lines.push(`补充答案：${question.supplement}`)
+        if (value.attempt) lines.push(`学习者的答案：${value.attempt.answer}`)
+        return text(lines.join('\n'))
+      },
     },
     async execute(args, exec) {
       const store = await storeFor(exec.agent)

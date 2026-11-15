@@ -67,6 +67,19 @@
 | 收藏往返 | `favorite on` → `favorites` → `favorite off` | ✅ 列表先有后空，数据已还原 |
 | 复习模式 | `queue {revisit:true}` | ✅ 返回全部 3 题 |
 
+## v2b · 判分闭环与错题本验收（2026-11-15）
+
+真机直接打路由与工具，全部通过：
+
+- `attempt start`（UTF-8 中文正文）→ `a_447c0feb`；`attempt get` 取回同一条，`grade: null`。
+- `learning_grade open` 的返回文本含题干、参考答案、三个要点与学习者答案（第一版只渲染了题号，验收当场发现并修掉，加了渲染断言）。
+- `learning_grade submit`（转述的 covered/missed + feedback + suggestion）→ 得分 0.33；`attempt get` 看到完整 grade；`weak` 返回该题 `misses: 1, lastScore: 0.33`；`question` 的 `lastAttempt` 指回这次作答。
+- `quiz`：把 `leavePromptRate` 置 1、冷却置 0 后抽中错题并返回卡片，同时把 `lastQuizAt` 写进 `meta.settings`；随后把设置还原为 0.15 / 10。
+- `learning_question update` 写 `reference.supplement`（134 字）→ `question` 原样返出，`points` 未被冲掉。
+- 顺带修掉一个真实场景的坑：手改 `meta.json`（记事本默认写 BOM）会让所有 op 变成 400 `Unexpected token` —— `readJson` / `readJsonl` 现在先剥 BOM，有测试钉住。
+
+待人工确认（UI）：答题框提交后的「批改中」与结果块、低分优化答案、抽查弹卡就地作答、错题本页与移出。
+
 ## v2a · 问题串验收（2026-11-15）
 
 - 135 个测试全绿（v2a 新增：related 5 个、ingest 3 个、store 1 个、views 2 个、tools 1 个、client 2 个），包检查通过。
