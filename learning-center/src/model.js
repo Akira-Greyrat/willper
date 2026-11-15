@@ -142,7 +142,9 @@ export function validatePatch(current, patch, options) {
       }
       case 'related': {
         if (!value || typeof value !== 'object') throw new Error('invalid related')
-        next.related = { ...current.related, ...value }
+        // Shape only: caps and stem→id resolution belong to the store, which owns
+        // the bank (this module must not import the related helpers back).
+        next.related = value
         break
       }
       case 'status': {

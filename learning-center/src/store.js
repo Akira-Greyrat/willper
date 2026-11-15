@@ -11,6 +11,7 @@ import { readConfig } from './config.js'
 import { commitInbox } from './ingest.js'
 import { readJson, readJsonl, writeJson, writeJsonl } from './io.js'
 import { normalizePath, questionKey, validateDraft, validatePatch } from './model.js'
+import { normalizeRelated, resolveRelatedIds } from './related.js'
 import { resolveStore } from './paths.js'
 
 /** Statuses the panel may set. */
@@ -117,6 +118,11 @@ export function createStore(baseDir, rawConfig) {
     if (index === -1) throw new Error(`unknown question: ${id}`)
     const current = questions[index]
     const next = validatePatch(current, patch ?? {}, { nodeIds: await nodeIds() })
+    if (patch && patch.related !== undefined) {
+      const normalized = normalizeRelated(patch.related)
+      const { ids } = resolveRelatedIds(questions, normalized.questions)
+      next.related = { questions: ids, deeper: normalized.deeper, broader: normalized.broader }
+    }
     if (next.stem !== current.stem) {
       const newKey = questionKey(current.source && current.source.file ? current.source.file : '', next.stem)
       const history = [...(current.previousKeys ?? []), current.key]
