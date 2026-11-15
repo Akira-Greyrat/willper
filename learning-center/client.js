@@ -582,6 +582,8 @@ window.__ModuleLoader__.load({
       const [referenceEditing, setReferenceEditing] = useState(false)
       const [referenceAnswer, setReferenceAnswer] = useState('')
       const [referencePoints, setReferencePoints] = useState('')
+      const [focusAnswer, setFocusAnswer] = useState(false)
+      const answerRef = useRef(null)
       const [history, setHistory] = useState([])
       const [revisit, setRevisit] = useState(false)
 
@@ -769,6 +771,7 @@ window.__ModuleLoader__.load({
 
       const toggleRevisit = useCallback(async () => {
         const next = !revisit
+        maybeQuiz()
         setRevisit(next)
         if (!sessionId) return
         try {
@@ -776,7 +779,7 @@ window.__ModuleLoader__.load({
         } catch (err) {
           fail(err)
         }
-      }, [revisit, sessionId, nodeId, loadQueue, fail])
+      }, [revisit, sessionId, nodeId, loadQueue, maybeQuiz, fail])
 
       const pickNode = useCallback(async id => {
         if (id !== nodeId) maybeQuiz()
@@ -796,6 +799,7 @@ window.__ModuleLoader__.load({
 
       const openQuestion = useCallback(async id => {
         if (!sessionId) return
+        if (!card || card.id !== id) maybeQuiz()
         try {
           const detail = await request('question', { id }, sessionId)
           if (!detail.question) {
@@ -809,7 +813,7 @@ window.__ModuleLoader__.load({
         } catch (err) {
           fail(err)
         }
-      }, [sessionId, t, fail])
+      }, [sessionId, t, card, maybeQuiz, fail])
 
       const fillRelated = useCallback(() => {
         if (!card) return
@@ -944,8 +948,21 @@ window.__ModuleLoader__.load({
       const openWeak = useCallback(async id => {
         setTab('study')
         setQuiz(null)
-        await openQuestion(id)
-      }, [openQuestion])
+        try {
+          const detail = await request('question', { id }, sessionId)
+          if (!detail.question) {
+            setError(t('relatedGone'))
+            return
+          }
+          // Re-sync the queue to this question's topic so 下一题 does not jump
+          // from a stale queue position.
+          await loadQueue(sessionId, detail.question.nodeId, revisit)
+          await openQuestion(id)
+          setFocusAnswer(true)
+        } catch (err) {
+          fail(err)
+        }
+      }, [sessionId, openQuestion, loadQueue, revisit, setFocusAnswer, t, fail])
 
       const fillSupplement = useCallback(() => {
         if (!card) return
@@ -1018,6 +1035,21 @@ window.__ModuleLoader__.load({
         // eslint-disable-next-line react-hooks/exhaustive-deps
       }, [card && card.id])
 
+      useEffect(() => {
+        if (!focusAnswer) return
+        if (tab !== 'study' || !card) return
+        if (answerRef.current && typeof answerRef.current.focus === 'function') answerRef.current.focus()
+        setFocusAnswer(false)
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+      }, [focusAnswer, tab, card && card.id])
+
+      useEffect(() => {
+        // Reports and weak rows belong to one session's workspace; a session
+        // switch must not show the previous one's.
+        setReport(null)
+        setWeak({ items: [] })
+      }, [sessionId])
+
       const toggleFavorite = useCallback(async () => {
         if (!sessionId || !card) return
         try {
@@ -1038,6 +1070,7 @@ window.__ModuleLoader__.load({
           if (name === 'bank') setChecklist(await request('checklist', {}, sessionId))
           if (name === 'favorite') setFavorites(await request('favorites', {}, sessionId))
           if (name === 'weak') await loadWeak()
+          if (name === 'plan') setMeta(await request('meta', {}, sessionId))
           if (name === 'report') await loadReport()
           setError(null)
         } catch (err) {
@@ -1213,6 +1246,7 @@ window.__ModuleLoader__.load({
             h(AnswerCard, {
               card,
               t,
+              inputRef: answerRef,
               answer,
               grading,
               onAnswer: setAnswer,
@@ -1271,7 +1305,9 @@ window.__ModuleLoader__.load({
               className: 'lc-btn',
               onClick: async () => {
                 try {
-                  await showCard(item.id)
+                  // Same path as related chips and the weak list: it triggers
+                  // the leave-quiz and keeps the queue in sync.
+                  await openQuestion(item.id)
                   setTab('study')
                   setError(null)
                 } catch (err) {
@@ -1515,7 +1551,7 @@ window.__ModuleLoader__.load({
      * @param {object} props - component props.
      * @returns {object} React node.
      */
-    function AnswerCard({ card, t, answer, onAnswer, grading, gradeAttempt, onSubmit, onRetry, onFillSupplement }) {
+    function AnswerCard({ card, t, answer, onAnswer, grading, gradeAttempt, onSubmit, onRetry, inputRef }) {
       const points = card && card.reference && card.reference.points
       const hasPoints = Array.isArray(points) && points.length > 0
       return h('div', { className: 'lc-card lc-answer-card' },
@@ -1523,6 +1559,7 @@ window.__ModuleLoader__.load({
         h('textarea', {
           className: 'lc-input',
           rows: 4,
+          ref: inputRef,
           value: answer,
           disabled: grading === 'waiting',
           onChange: event => onAnswer(event.target.value),
