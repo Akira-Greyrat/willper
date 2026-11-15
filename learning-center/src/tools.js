@@ -151,6 +151,8 @@ export function toolDefinitions(storeFor) {
               'source.anchor 必须是原文里逐字出现的一段话（建议 10-30 字），用于核对题目确实来自材料；找不到锚点的题会被退回待核对。',
               '同时把材料的纯文本写进 materials/<材料名>.txt，否则整批都会被标成无法核对。',
               '术语另写一行一个：{ term, definition, example? }，术语必须出现在某些题干里。',
+              '每题可选给 related：questions 写题库里另一道题的题干原文（不是题号），deeper / broader 各 1-3 条你自己的问题。',
+              'related 只写你确信相关的，宁少勿多；空着比凑数好。写错题干的关联会被丢弃。',
               '一次 30-60 题；写完调用 learning_import commit。commit 会新增、合并、待核对分开计数，并逐条给出原因。',
               '同一份材料重导是对账：题干相同的题会被更新而不是重复。',
             ].join('\n'),

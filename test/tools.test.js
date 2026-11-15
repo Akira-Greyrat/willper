@@ -88,6 +88,14 @@ test('import brief 给出三件套路径与字段要求', async () => {
   })
 })
 
+test('brief 说明里要求 AI 顺手填关联网', async () => {
+  await wire(async ({ tools }) => {
+    const r = await call(tools.learning_import, { action: 'brief' })
+    assert.ok(r.instructions.includes('related'))
+    assert.ok(r.instructions.includes('题干'))
+  })
+})
+
 test('import commit 转调入库并回传计数', async () => {
   await wire(async ({ tools, store, paths }) => {
     const { meta } = await store.load()
