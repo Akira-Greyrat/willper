@@ -67,6 +67,14 @@ window.__ModuleLoader__.load({
       supplementTitle: '补充答案',
       supplementFill: '让 AI 补这段补充答案',
       gradeAgain: '再答一次',
+      quizTitle: '先答一道再走',
+      quizSkip: '跳过',
+      quizMute: '本轮不再提醒',
+      weakTitle: '错题',
+      weakEmpty: '还没有错题，先去过几道题。',
+      weakMisses: '漏点',
+      weakLastScore: '上次',
+      weakDismiss: '移出',
       noDefinition: '（还没有释义）',
       seenCount: '已读 %s / %s',
       flag: {
@@ -149,6 +157,14 @@ window.__ModuleLoader__.load({
       supplementTitle: 'Additional answer',
       supplementFill: 'Ask the AI to add one',
       gradeAgain: 'Answer again',
+      quizTitle: 'Answer one before you go',
+      quizSkip: 'Skip',
+      quizMute: 'Stop asking this round',
+      weakTitle: 'Weak questions',
+      weakEmpty: 'No weak questions yet — read a few first.',
+      weakMisses: 'Missed',
+      weakLastScore: 'Last',
+      weakDismiss: 'Remove',
       noDefinition: '(no definition yet)',
       save: 'Save',
       cancel: 'Cancel',
@@ -221,6 +237,8 @@ window.__ModuleLoader__.load({
       .lc-grade-row { display: flex; gap: 6px; align-items: baseline; font-size: 13px; }
       .lc-suggestion { margin-top: 8px; padding: 8px 10px; border: 1px dashed var(--dsw-alias-border-l2); border-radius: 8px; white-space: pre-wrap; line-height: 1.6; }
       .lc-supplement { margin-top: 12px; display: flex; flex-direction: column; gap: 6px; }
+      .lc-backdrop { position: fixed; inset: 0; background: rgba(0, 0, 0, 0.35); display: flex; align-items: center; justify-content: center; z-index: 80; }
+      .lc-modal { width: 520px; max-width: calc(100vw - 48px); max-height: calc(100vh - 96px); overflow: auto; background: var(--dsw-alias-bg-layer-1); border: 1px solid var(--dsw-alias-border-l2); border-radius: 12px; padding: 18px 20px; display: flex; flex-direction: column; gap: 10px; }
       .lc-related-row { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
       .lc-related-label { color: var(--dsw-alias-label-secondary); font-size: 12px; margin-right: 2px; }
       .lc-flags { color: var(--dsw-alias-state-warn-primary); font-size: 12px; }
@@ -508,6 +526,12 @@ window.__ModuleLoader__.load({
       const [grading, setGrading] = useState('idle')
       const [gradedAttempt, setGradedAttempt] = useState(null)
       const [pendingAttemptId, setPendingAttemptId] = useState(null)
+      const [quiz, setQuiz] = useState(null)
+      const [quizAnswer, setQuizAnswer] = useState('')
+      const [quizGrading, setQuizGrading] = useState('idle')
+      const [quizAttempt, setQuizAttempt] = useState(null)
+      const [muted, setMuted] = useState(false)
+      const [weak, setWeak] = useState({ items: [] })
       const [history, setHistory] = useState([])
       const [revisit, setRevisit] = useState(false)
 
@@ -526,6 +550,22 @@ window.__ModuleLoader__.load({
           fail(err)
         }
       }, [sessionId, t, fail])
+
+      /** Ask the host whether a leave-quiz should appear now. */
+      const maybeQuiz = useCallback(async () => {
+        if (!sessionId || muted) return
+        try {
+          const sampled = await request('quiz', {}, sessionId)
+          if (!sampled || !sampled.question) return
+          setQuiz(sampled.question)
+          setQuizAnswer('')
+          setQuizGrading('idle')
+          setQuizAttempt(null)
+        } catch {
+          // A failed sample is not worth interrupting the reader.
+        }
+      }, [sessionId, muted])
+
 
       /** Refresh meta, tree and glossary. */
       const loadBasics = useCallback(async id => {
@@ -641,6 +681,7 @@ window.__ModuleLoader__.load({
 
       const nextQuestion = useCallback(async () => {
         if (!sessionId || !card) return
+        maybeQuiz()
         try {
           await request('seen', { id: card.id }, sessionId)
           setHistory([...history, card.id])
@@ -655,10 +696,11 @@ window.__ModuleLoader__.load({
         } catch (err) {
           fail(err)
         }
-      }, [sessionId, card, nodeId, revisit, history, cursor, page, loadQueue, showCard, refreshTree, fail])
+      }, [sessionId, card, nodeId, revisit, history, cursor, page, loadQueue, showCard, refreshTree, maybeQuiz, fail])
 
       const prevQuestion = useCallback(async () => {
         if (!sessionId) return
+        maybeQuiz()
         try {
           if (cursor > 0) {
             setCursor(cursor - 1)
@@ -672,7 +714,7 @@ window.__ModuleLoader__.load({
         } catch (err) {
           fail(err)
         }
-      }, [sessionId, cursor, page, history, showCard, fail])
+      }, [sessionId, cursor, page, history, showCard, maybeQuiz, fail])
 
       const toggleRevisit = useCallback(async () => {
         const next = !revisit
@@ -686,6 +728,7 @@ window.__ModuleLoader__.load({
       }, [revisit, sessionId, nodeId, loadQueue, fail])
 
       const pickNode = useCallback(async id => {
+        if (id !== nodeId) maybeQuiz()
         setNodeId(id)
         setHistory([])
         if (!sessionId) return
@@ -723,10 +766,11 @@ window.__ModuleLoader__.load({
         ask(text)
       }, [card, ask])
 
-      /** Poll one attempt until it has a grade, then stop. */
-      const pollAttempt = useCallback((attemptId, tries) => {
+      /** Poll one attempt until it has a grade, then store it for its surface. */
+      const pollAttempt = useCallback((attemptId, tries, mode) => {
         if (tries >= 45) {
-          setGrading('timeout')
+          if (mode === 'quiz') setQuizGrading('timeout')
+          else setGrading('timeout')
           return
         }
         setTimeout(async () => {
@@ -734,13 +778,19 @@ window.__ModuleLoader__.load({
           try {
             const got = await request('attempt', { action: 'get', attemptId }, sessionId)
             if (got.attempt && got.attempt.grade) {
-              setGradedAttempt(got.attempt)
-              setGrading('done')
+              if (mode === 'quiz') {
+                setQuizAttempt(got.attempt)
+                setQuizGrading('done')
+              } else {
+                setGradedAttempt(got.attempt)
+                setGrading('done')
+              }
               return
             }
-            pollAttempt(attemptId, tries + 1)
+            pollAttempt(attemptId, tries + 1, mode)
           } catch {
-            setGrading('timeout')
+            if (mode === 'quiz') setQuizGrading('timeout')
+            else setGrading('timeout')
           }
         }, 2000)
       }, [sessionId])
@@ -754,7 +804,7 @@ window.__ModuleLoader__.load({
           const started = await request('attempt', { action: 'start', questionId: card.id, answer: text, kind: 'study' }, sessionId)
           setPendingAttemptId(started.attemptId)
           await ask(`批改答题 ${started.attemptId}：先 learning_grade open 取题与答案，再 submit 写回 covered/missed/wrong/feedback/suggestion（命中率低于 0.6 时必给 suggestion）。`)
-          pollAttempt(started.attemptId, 0)
+          pollAttempt(started.attemptId, 0, 'study')
         } catch (err) {
           setGrading('idle')
           fail(err)
@@ -768,8 +818,53 @@ window.__ModuleLoader__.load({
         }
         setGrading('waiting')
         ask(`批改答题 ${pendingAttemptId}：用 learning_grade open 取题与答案，再用 submit 写回覆盖/漏点/说错/反馈/优化答案。`)
-        pollAttempt(pendingAttemptId, 0)
+        pollAttempt(pendingAttemptId, 0, 'study')
       }, [pendingAttemptId, ask, pollAttempt])
+
+      const submitQuiz = useCallback(async () => {
+        if (!sessionId || !quiz) return
+        const text = quizAnswer.trim()
+        if (text.length === 0) return
+        setQuizGrading('waiting')
+        try {
+          const started = await request('attempt', { action: 'start', questionId: quiz.id, answer: text, kind: 'quiz' }, sessionId)
+          await ask(`批改答题 ${started.attemptId}：先 learning_grade open 取题与答案，再 submit 写回 covered/missed/wrong/feedback/suggestion（命中率低于 0.6 时必给 suggestion）。`)
+          pollAttempt(started.attemptId, 0, 'quiz')
+        } catch (err) {
+          setQuizGrading('idle')
+          fail(err)
+        }
+      }, [sessionId, quiz, quizAnswer, ask, pollAttempt, fail])
+
+      const closeQuiz = useCallback(() => {
+        setQuiz(null)
+        setQuizGrading('idle')
+        setQuizAttempt(null)
+      }, [])
+
+      const loadWeak = useCallback(async () => {
+        if (!sessionId) return
+        try {
+          setWeak(await request('weak', {}, sessionId))
+        } catch (err) {
+          fail(err)
+        }
+      }, [sessionId, fail])
+
+      const dismissWeak = useCallback(async id => {
+        try {
+          await request('setDismissed', { questionId: id, on: true }, sessionId)
+          await loadWeak()
+        } catch (err) {
+          fail(err)
+        }
+      }, [sessionId, loadWeak, fail])
+
+      const openWeak = useCallback(async id => {
+        setTab('study')
+        setQuiz(null)
+        await openQuestion(id)
+      }, [openQuestion])
 
       const fillSupplement = useCallback(() => {
         if (!card) return
@@ -796,16 +891,18 @@ window.__ModuleLoader__.load({
       }, [sessionId, card, fail])
 
       const switchTab = useCallback(async name => {
+        if (tab === 'study' && name !== 'study') maybeQuiz()
         setTab(name)
         if (!sessionId) return
         try {
           if (name === 'bank') setChecklist(await request('checklist', {}, sessionId))
           if (name === 'favorite') setFavorites(await request('favorites', {}, sessionId))
+          if (name === 'weak') await loadWeak()
           setError(null)
         } catch (err) {
           fail(err)
         }
-      }, [sessionId, fail])
+      }, [tab, maybeQuiz, sessionId, loadWeak, fail])
 
       const setStatus = useCallback(async (id, status) => {
         try {
@@ -836,7 +933,7 @@ window.__ModuleLoader__.load({
             h('p', { className: 'lc-node-sub' }, loaded ? t('sessionMissing') : t('loading'))))
       }
 
-      const tabs = ['study', 'bank', 'favorite']
+      const tabs = ['study', 'bank', 'weak', 'favorite']
 
       const hasTarget = Boolean(meta && meta.target)
       const hasTree = tree.length > 0
@@ -995,6 +1092,10 @@ window.__ModuleLoader__.load({
             }, t('study'))))))
         : null
 
+      const weakPane = hasTarget && hasTree && tab === 'weak'
+        ? h(WeakList, { items: weak.items, t, onOpen: openWeak, onDismiss: dismissWeak })
+        : null
+
       const mainPane = h('div', { className: 'lc-main' },
         hasTarget ? null : h(EmptyState, { t, busy, onSave: saveTarget }),
         hasTarget && !hasTree
@@ -1007,10 +1108,27 @@ window.__ModuleLoader__.load({
           : null,
         studyPane,
         bankPane,
+        weakPane,
         favoritesPane)
 
       return h('div', { className: 'lc-root' }, head, toastRow, errorRow,
-        h('div', { className: 'lc-body' }, treePane, mainPane))
+        h('div', { className: 'lc-body' }, treePane, mainPane),
+        quiz
+          ? h(QuizModal, {
+            card: quiz,
+            t,
+            answer: quizAnswer,
+            onAnswer: setQuizAnswer,
+            grading: quizGrading,
+            gradeAttempt: quizAttempt,
+            onSubmit: submitQuiz,
+            onSkip: closeQuiz,
+            onMute: () => {
+              setMuted(true)
+              closeQuiz()
+            },
+          })
+          : null)
     }
 
     /** Prompt the panel sends when the user asks for the topic tree. */
@@ -1193,6 +1311,54 @@ window.__ModuleLoader__.load({
     }
 
     /**
+     * The leave-question quiz: one question, an answer box, submit, skip, mute.
+     * @param {object} props - component props.
+     * @returns {object} React node.
+     */
+    function QuizModal({ card, t, answer, onAnswer, grading, gradeAttempt, onSubmit, onSkip, onMute }) {
+      return h('div', { className: 'lc-backdrop' },
+        h('div', { className: 'lc-modal' },
+          h('h2', { className: 'lc-cardTitle' }, t('quizTitle')),
+          h('p', { className: 'lc-stem' }, card.stem),
+          h('textarea', {
+            className: 'lc-input',
+            rows: 4,
+            value: answer,
+            disabled: grading === 'waiting',
+            onChange: event => onAnswer(event.target.value),
+          }),
+          h('div', { className: 'lc-actions' },
+            h('button', {
+              type: 'button',
+              className: 'lc-btn lc-btn-primary',
+              disabled: answer.trim().length === 0 || grading === 'waiting',
+              onClick: onSubmit,
+            }, t('submitGrade')),
+            h('button', { type: 'button', className: 'lc-btn', onClick: onSkip }, t('quizSkip')),
+            h('button', { type: 'button', className: 'lc-btn', onClick: onMute }, t('quizMute'))),
+          grading === 'waiting' ? h('p', { className: 'lc-node-sub' }, t('gradingWait')) : null,
+          gradeAttempt ? h(GradeBlock, { attempt: gradeAttempt, t }) : null))
+    }
+
+    /**
+     * The weak-question list: one row per question, reopen or dismiss.
+     * @param {object} props - component props.
+     * @returns {object} React node.
+     */
+    function WeakList({ items, t, onOpen, onDismiss }) {
+      if (!Array.isArray(items) || items.length === 0) {
+        return h('p', { className: 'lc-node-sub' }, t('weakEmpty'))
+      }
+      return h('div', null, items.map(item => h('div', { className: 'lc-row', key: item.id },
+        h('div', { style: { minWidth: 0, flex: '1 1 auto' } },
+          h('div', { className: 'lc-stem', style: { margin: 0 } }, item.stem),
+          h('div', { className: 'lc-flag-list' }, `${t('weakMisses')} ${item.misses} · ${t('weakLastScore')} ${item.lastScore === null ? '—' : item.lastScore}`)),
+        h('div', { className: 'lc-actions' },
+          h('button', { type: 'button', className: 'lc-btn', onClick: () => onOpen(item.id) }, t('gradeAgain')),
+          h('button', { type: 'button', className: 'lc-btn', onClick: () => onDismiss(item.id) }, t('weakDismiss'))))))
+    }
+
+    /**
      * First-run form: a target is the one thing the panel cannot invent.
      * @param {{t: Function, busy: boolean, onSave: Function}} props - component props.
      * @returns {object} React node.
@@ -1266,7 +1432,7 @@ window.__ModuleLoader__.load({
         }, props => h(PanelBoundary, { t }, h(Panel, { ...props, layout, t }))))
       },
       /** Rendered-only internals, exposed so the node harness can exercise them. */
-      __test: { PanelBoundary, popoverStyle, Icon, TermPopover, isOutsidePopover, TERM_ACCENT, RelatedChips, GradeBlock, canSubmit },
+      __test: { PanelBoundary, popoverStyle, Icon, TermPopover, isOutsidePopover, TERM_ACCENT, RelatedChips, GradeBlock, canSubmit, QuizModal, WeakList },
     }
   },
 })

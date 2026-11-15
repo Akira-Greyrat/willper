@@ -310,3 +310,46 @@ test('没有要点的题不能提交', async () => {
   assert.equal(canSubmit({ reference: { answer: 'a', points: ['p'] } }), true)
   assert.equal(canSubmit({ reference: { answer: 'a' } }), false)
 })
+test('抽查弹卡有答题框与三个动作', async () => {
+  const { module } = await loadClient()
+  const Modal = module.__test && module.__test.QuizModal
+  assert.equal(typeof Modal, 'function')
+  const tree = Modal({
+    card: { id: 'q1', stem: '题干内容' },
+    t: key => key,
+    answer: '',
+    onAnswer: () => {},
+    grading: 'idle',
+    gradeAttempt: null,
+    onSubmit: () => {},
+    onSkip: () => {},
+    onMute: () => {},
+  })
+  const text = JSON.stringify(tree)
+  assert.ok(text.includes('题干内容'))
+  const buttons = []
+  const walk = node => {
+    if (Array.isArray(node)) { for (const item of node) walk(item); return }
+    if (!node || typeof node !== 'object') return
+    if (node.type === 'button') buttons.push(node)
+    for (const child of node.children ?? []) walk(child)
+  }
+  walk(tree)
+  assert.equal(buttons.length, 3)
+})
+
+test('错题本每行有再答一次与移出', async () => {
+  const { module } = await loadClient()
+  const List = module.__test && module.__test.WeakList
+  assert.equal(typeof List, 'function')
+  const tree = List({ items: [{ id: 'q1', stem: '题干', misses: 2, lastScore: 0.5 }], t: key => key, onOpen: () => {}, onDismiss: () => {} })
+  const buttons = []
+  const walk = node => {
+    if (Array.isArray(node)) { for (const item of node) walk(item); return }
+    if (!node || typeof node !== 'object') return
+    if (node.type === 'button') buttons.push(node)
+    for (const child of node.children ?? []) walk(child)
+  }
+  walk(tree)
+  assert.equal(buttons.length, 2)
+})
