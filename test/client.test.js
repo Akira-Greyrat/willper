@@ -486,3 +486,27 @@ test('stagesFrom 透传宿主解析好的知识点标题，缺 id 时兜底', as
   assert.deepEqual(stages[1].nodeTitles, ['基础'])
   assert.equal(stages[2].status, 'todo')
 })
+test('补充答案可以就地编辑并保存', async () => {
+  const { module } = await loadClient()
+  const Block = module.__test.SupplementBlock
+  assert.equal(typeof Block, 'function')
+  const base = { reference: { supplement: '旧内容' }, t: key => key, onFill() {}, draft: '', onEdit() {}, onDraft() {}, onSave() {}, onCancel() {} }
+  const view = Block({ ...base, editing: false })
+  assert.ok(JSON.stringify(view).includes('旧内容'))
+  const editing = Block({ ...base, editing: true, draft: '草稿内容' })
+  const text = JSON.stringify(editing)
+  assert.ok(text.includes('草稿内容'))
+  assert.ok(text.includes('textarea'))
+  const buttons = []
+  const walk = node => {
+    if (Array.isArray(node)) { for (const item of node) walk(item); return }
+    if (!node || typeof node !== 'object') return
+    if (node.type === 'button') buttons.push(node)
+    for (const child of node.children ?? []) walk(child)
+  }
+  walk(editing)
+  assert.equal(buttons.length, 2)
+  buttons.length = 0
+  walk(view)
+  assert.equal(buttons.length, 1)
+})

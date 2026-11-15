@@ -45,6 +45,7 @@ window.__ModuleLoader__.load({
       prev: '上一题',
       save: '保存',
       cancel: '取消',
+      edit: '编辑',
       refresh: '刷新',
       importHint: '在对话里用 /learn import <材料文件> 导入题库。',
       emptyChecklist: '没有待核对的题。',
@@ -275,6 +276,7 @@ window.__ModuleLoader__.load({
       .lc-grade-row { display: flex; gap: 6px; align-items: baseline; font-size: 13px; }
       .lc-suggestion { margin-top: 8px; padding: 8px 10px; border: 1px dashed var(--dsw-alias-border-l2); border-radius: 8px; white-space: pre-wrap; line-height: 1.6; }
       .lc-supplement { margin-top: 12px; display: flex; flex-direction: column; gap: 6px; }
+      .lc-supplement-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
       .lc-backdrop { position: fixed; inset: 0; background: rgba(0, 0, 0, 0.35); display: flex; align-items: center; justify-content: center; z-index: 80; }
       .lc-report { white-space: pre-wrap; line-height: 1.75; font-size: 13px; margin-top: 4px; }
       .lc-modal { width: 520px; max-width: calc(100vw - 48px); max-height: calc(100vh - 96px); overflow: auto; background: var(--dsw-alias-bg-layer-1); border: 1px solid var(--dsw-alias-border-l2); border-radius: 12px; padding: 18px 20px; display: flex; flex-direction: column; gap: 10px; }
@@ -514,7 +516,7 @@ window.__ModuleLoader__.load({
      * @param {object} props - component props.
      * @returns {object} React node.
      */
-    function QuestionCard({ card, t, shownSeen, shownTotal, answerOpen, openTerm, onToggleAnswer, onPickTerm, onNext, onPrev, canPrev, onFavorite, onRevisit, revisit, onFillSupplement }) {
+    function QuestionCard({ card, t, shownSeen, shownTotal, answerOpen, openTerm, onToggleAnswer, onPickTerm, onNext, onPrev, canPrev, onFavorite, onRevisit, revisit, supplementProps }) {
       return h('div', { className: 'lc-card' },
         h(StemView, { stem: card.stem, termHits: card.termHits, onPick: onPickTerm, picked: openTerm }),
         h('div', { className: 'lc-actions' },
@@ -529,7 +531,7 @@ window.__ModuleLoader__.load({
             card.reference.points && card.reference.points.length > 0
               ? h('ul', { className: 'lc-points' }, card.reference.points.map((point, index) => h('li', { key: index }, point)))
               : null,
-            h(SupplementBlock, { reference: card.reference, t, onFill: onFillSupplement }))
+            h(SupplementBlock, { reference: card.reference, t, ...(supplementProps ?? {}) }))
           : null,
         h('div', { className: 'lc-meta' },
           h('span', null, t('seenCount').replace('%s', String(shownSeen)).replace('%s', String(shownTotal))),
@@ -574,6 +576,8 @@ window.__ModuleLoader__.load({
       const [muted, setMuted] = useState(false)
       const [weak, setWeak] = useState({ items: [] })
       const [report, setReport] = useState(null)
+      const [supplementEditing, setSupplementEditing] = useState(false)
+      const [supplementDraft, setSupplementDraft] = useState('')
       const [history, setHistory] = useState([])
       const [revisit, setRevisit] = useState(false)
 
@@ -944,9 +948,30 @@ window.__ModuleLoader__.load({
         ask(`用 learning_question update 给题号 ${card.id} 补 reference.supplement：写面试里被追问时你会怎么讲这道题，或这道题的陷阱与常见错误；写完告诉我。`)
       }, [card, ask])
 
+      const editSupplement = useCallback(() => {
+        if (!card) return
+        const current = card.reference && typeof card.reference.supplement === 'string' ? card.reference.supplement : ''
+        setSupplementDraft(current)
+        setSupplementEditing(true)
+      }, [card])
+
+      const saveSupplement = useCallback(async () => {
+        if (!card || !sessionId) return
+        try {
+          await request('updateQuestion', { id: card.id, patch: { reference: { supplement: supplementDraft } } }, sessionId)
+          setSupplementEditing(false)
+          setError(null)
+          await showCard(card.id)
+        } catch (err) {
+          fail(err)
+        }
+      }, [card, sessionId, supplementDraft, showCard, fail])
+
       useEffect(() => {
         setAnswer('')
         setGradedAttempt(null)
+        setSupplementEditing(false)
+        setSupplementDraft('')
         // A card whose newest attempt has no grade yet is still being graded
         // (the learner may have reloaded mid-wait): resume the poll there.
         const state = gradingStateFor(card)
@@ -1133,7 +1158,15 @@ window.__ModuleLoader__.load({
               onPrev: prevQuestion,
               onRevisit: toggleRevisit,
               onFavorite: toggleFavorite,
-              onFillSupplement: fillSupplement,
+              supplementProps: {
+                editing: supplementEditing,
+                draft: supplementDraft,
+                onEdit: editSupplement,
+                onDraft: setSupplementDraft,
+                onSave: saveSupplement,
+                onCancel: () => setSupplementEditing(false),
+                onFill: fillSupplement,
+              },
             }),
             h(AnswerCard, {
               card,
@@ -1143,7 +1176,15 @@ window.__ModuleLoader__.load({
               onAnswer: setAnswer,
               onSubmit: submitAnswer,
               onRetry: retryGrading,
-              onFillSupplement: fillSupplement,
+              supplementProps: {
+                editing: supplementEditing,
+                draft: supplementDraft,
+                onEdit: editSupplement,
+                onDraft: setSupplementDraft,
+                onSave: saveSupplement,
+                onCancel: () => setSupplementEditing(false),
+                onFill: fillSupplement,
+              },
               gradeAttempt: gradedAttempt && card && gradedAttempt.questionId === card.id
                 ? gradedAttempt
                 : (card && card.lastAttempt && card.lastAttempt.grade ? card.lastAttempt : null),
@@ -1397,13 +1438,24 @@ window.__ModuleLoader__.load({
      * @param {{reference: object, t: Function, onFill: Function}} props - component props.
      * @returns {object} React node.
      */
-    function SupplementBlock({ reference, t, onFill }) {
+    function SupplementBlock({ reference, t, onFill, editing, draft, onEdit, onDraft, onSave, onCancel }) {
       const supplement = reference && typeof reference.supplement === 'string' ? reference.supplement : ''
+      if (editing) {
+        return h('div', { className: 'lc-supplement' },
+          h('div', { className: 'lc-related-label' }, t('supplementTitle')),
+          h('textarea', { className: 'lc-input', rows: 6, value: draft, onChange: event => onDraft(event.target.value) }),
+          h('div', { className: 'lc-actions' },
+            h('button', { type: 'button', className: 'lc-btn lc-btn-primary', onClick: onSave }, t('save')),
+            h('button', { type: 'button', className: 'lc-btn', onClick: onCancel }, t('cancel'))))
+      }
       return h('div', { className: 'lc-supplement' },
-        h('div', { className: 'lc-related-label' }, t('supplementTitle')),
+        h('div', { className: 'lc-supplement-head' },
+          h('div', { className: 'lc-related-label' }, t('supplementTitle')),
+          h('button', { type: 'button', className: 'lc-btn', onClick: onEdit }, t('edit'))),
         supplement.length > 0
           ? h('div', { className: 'lc-answer' }, supplement)
-          : h('button', { type: 'button', className: 'lc-btn', onClick: onFill }, t('supplementFill')))
+          : h('div', { className: 'lc-actions' },
+            h('button', { type: 'button', className: 'lc-btn', onClick: onFill }, t('supplementFill'))))
     }
 
     /**
