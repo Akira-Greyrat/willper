@@ -6,12 +6,12 @@
  */
 
 import { createHash } from 'node:crypto'
-import { readdir, readFile } from 'node:fs/promises'
+import { readdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { basename, extname, join } from 'node:path'
 import { readConfig } from './config.js'
 import { normalizeGrading } from './grading.js'
 import { commitInbox } from './ingest.js'
-import { readJson, readJsonl, writeJson, writeJsonl } from './io.js'
+import { readJson, readJsonl, writeJson, writeJsonl, ensureDir } from './io.js'
 import { normalizePath, questionKey, validateDraft, validatePatch } from './model.js'
 import { normalizeRelated, resolveRelatedIds } from './related.js'
 import { PLAN_STATUSES } from './plan.js'
@@ -306,6 +306,60 @@ export function createStore(baseDir, rawConfig) {
   }
 
   /**
+   * @param {string} at - ISO timestamp.
+   * @returns {string} `yyyyMMdd-HHmmss`, safe in a file name.
+   */
+  function reportStamp(at) {
+    return String(at).replace(/[-:]/gu, '').replace('T', '-').replace(/\..*$/u, '')
+  }
+
+  /**
+   * Write one audit report and keep the index to the newest twenty.
+   * @param {string} markdown - the report body.
+   * @param {string} [at] - timestamp, injectable for tests.
+   * @returns {Promise<{ at: string, file: string }>} where it landed.
+   */
+  async function saveReport(markdown, at = new Date().toISOString()) {
+    const text = typeof markdown === 'string' ? markdown.trim() : ''
+    if (text.length === 0) throw new Error('empty report')
+    await ensureDir(paths.reportsDir)
+    const file = `audit-${reportStamp(at)}.md`
+    await writeFile(join(paths.reportsDir, file), `${text}\n`, 'utf8')
+    const indexFile = join(paths.reportsDir, 'index.json')
+    const index = await readJson(indexFile, [])
+    index.push({ at, file })
+    index.sort((a, b) => String(a.at).localeCompare(String(b.at)))
+    while (index.length > 20) {
+      const oldest = index.shift()
+      try {
+        // Delete the file first: an index entry pointing at a missing file is
+        // worse than a file nobody indexes.
+        await rm(join(paths.reportsDir, oldest.file), { force: true })
+      } catch {
+        // A report the user already deleted is not a failure here.
+      }
+    }
+    await writeJson(indexFile, index)
+    return { at, file }
+  }
+
+  /**
+   * @returns {Promise<{ at: string, markdown: string }|null>} the newest report.
+   */
+  async function latestReport() {
+    const index = await readJson(join(paths.reportsDir, 'index.json'), [])
+    if (!Array.isArray(index) || index.length === 0) return null
+    const last = index[index.length - 1]
+    try {
+      const markdown = await readFile(join(paths.reportsDir, last.file), 'utf8')
+      return { at: last.at, markdown }
+    } catch (error) {
+      if (error && error.code === 'ENOENT') return null
+      throw error
+    }
+  }
+
+  /**
    * @returns {Promise<object>} the meta settings block.
    */
   async function loadSettings() {
@@ -419,6 +473,8 @@ export function createStore(baseDir, rawConfig) {
     setDismissed,
     sampleQuiz,
     setStageStatus,
+    saveReport,
+    latestReport,
     loadSettings,
     saveSettings,
     upsertTerms,

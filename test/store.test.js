@@ -303,3 +303,26 @@ test('setStageStatus 只改目标阶段', async () => {
     await assert.rejects(() => store.setStageStatus('p_1', 'nope'), /unknown status/)
   })
 })
+test('saveReport 保留最近 20 份并删掉更旧的文件', async () => {
+  await withStore(async store => {
+    const { readdir } = await import('node:fs/promises')
+    for (let i = 0; i < 21; i += 1) {
+      await store.saveReport(`# 报告 ${i}`, `2026-11-16T00:00:${String(i).padStart(2, '0')}.000Z`)
+    }
+    const files = await readdir(store.paths.reportsDir)
+    assert.equal(files.filter(name => name.startsWith('audit-')).length, 20)
+    const latest = await store.latestReport()
+    assert.ok(latest.markdown.includes('报告 20'))
+  })
+})
+
+test('latestReport 在报告文件被删后返回 null 而不是抛错', async () => {
+  await withStore(async store => {
+    await store.saveReport('# 报告', '2026-11-16T00:00:00.000Z')
+    const { rm } = await import('node:fs/promises')
+    const { join } = await import('node:path')
+    const index = JSON.parse(await (await import('node:fs/promises')).readFile(join(store.paths.reportsDir, 'index.json'), 'utf8'))
+    await rm(join(store.paths.reportsDir, index[0].file), { force: true })
+    assert.equal(await store.latestReport(), null)
+  })
+})
