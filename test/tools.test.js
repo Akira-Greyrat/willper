@@ -254,3 +254,23 @@ test('learning_audit write 拒绝空报告', async () => {
     await assert.rejects(() => call(tools.learning_audit, { action: 'write', markdown: '  ' }), /empty report/)
   })
 })
+test('learning_audit brief 的渲染行要把摘要交给模型', async () => {
+  await wire(async ({ tools }) => {
+    const rendered = tools.learning_audit.output.render({}, {
+      instructions: '按这六类体检',
+      files: { questions: 'learning/questions.jsonl' },
+      digest: {
+        nodes: [{ id: 'n_1', title: '基础', count: 3 }],
+        needsReview: [{ id: 'q2', flags: ['missing_answer'] }],
+        duplicates: ['q4'], orphans: [], missingAnswer: ['q2'], materials: ['materials/a.md'],
+        totals: { questions: 6, nodes: 4 }, overflow: { nodes: 1, needsReview: 2, others: 3 },
+      },
+    })
+    const text = rendered.map(part => part.text).join('\n')
+    assert.ok(text.includes('按这六类体检'))
+    assert.ok(text.includes('基础'))
+    assert.ok(text.includes('q2'))
+    assert.ok(text.includes('还有 1 个知识点'))
+    assert.ok(text.includes('还有 2 条'))
+  })
+})

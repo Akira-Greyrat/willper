@@ -67,6 +67,17 @@
 | 收藏往返 | `favorite on` → `favorites` → `favorite off` | ✅ 列表先有后空，数据已还原 |
 | 复习模式 | `queue {revisit:true}` | ✅ 返回全部 3 题 |
 
+## v2c · 阶段计划页与体检验收（2026-11-16）
+
+真机直接打工具与路由，全部通过：
+
+- `learning_plan set_plan` 写入**不带 id** 的两个阶段 → `meta.json` 里变成 `p_1 / p_2`，状态都是 `todo`；工具说明已带形状（`reading`/`project`/`checkpoints`/状态枚举）。
+- `setStageStatus {stageId:'p_2', status:'doing'}` → 200，`p_1` 仍是 `todo`；未知阶段 `p_9` → 400。
+- `learning_audit brief` 的**渲染行**给出六类要求、每个知识点的题数（含 0 题的父节点）、待核对题号与 flags、缺答案、材料清单与总数——第一版只渲染"6 题 4 个知识点"，等于模型拿不到摘要，验收当场发现并修掉，加了渲染断言。
+- `learning_audit write` → 生成 `reports/audit-20261115-202136.md` 与 `index.json`；`report` op 取回正文与时间。
+
+待人工确认（UI）：两个新页签的显示、阶段状态按钮、体检页的正文渲染。
+
 ## v2b · 判分闭环与错题本验收（2026-11-15）
 
 真机直接打路由与工具，全部通过：
