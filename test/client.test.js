@@ -289,3 +289,24 @@ test('mainPanel 组件是 Panel，外面套着错误边界', async () => {
   assert.equal(element.type.name, 'PanelBoundary')
   assert.equal(element.children[0].type.name, 'Panel')
 })
+
+test('判分结果块：低分带优化答案，高分不带', async () => {
+  const { module } = await loadClient()
+  const Block = module.__test && module.__test.GradeBlock
+  assert.equal(typeof Block, 'function')
+  const low = Block({ attempt: { grade: { covered: ['a'], missed: ['b'], wrong: ['x'], feedback: '再补 b', suggestion: '更好：……', score: 0.5 } }, t: key => key })
+  const text = JSON.stringify(low)
+  assert.ok(text.includes('再补 b'))
+  assert.ok(text.includes('更好：……'))
+  const high = Block({ attempt: { grade: { covered: ['a'], missed: [], wrong: [], feedback: '好', suggestion: '', score: 1 } }, t: key => key })
+  assert.ok(!JSON.stringify(high).includes('更好：……'))
+})
+
+test('没有要点的题不能提交', async () => {
+  const { module } = await loadClient()
+  const canSubmit = module.__test && module.__test.canSubmit
+  assert.equal(typeof canSubmit, 'function')
+  assert.equal(canSubmit({ reference: { answer: 'a', points: [] } }), false)
+  assert.equal(canSubmit({ reference: { answer: 'a', points: ['p'] } }), true)
+  assert.equal(canSubmit({ reference: { answer: 'a' } }), false)
+})

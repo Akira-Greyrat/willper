@@ -53,6 +53,20 @@ window.__ModuleLoader__.load({
       relatedBroader: '往宽',
       relatedFill: '让 AI 补这题的关联网',
       relatedGone: '这道关联题已经不在题库里了。',
+      answerLabel: '写下你的答案（可先空着看参考答案）',
+      submitGrade: '提交并批改',
+      gradingWait: '批改中…',
+      gradingTimeout: 'AI 还没批完，可以重试',
+      retryGrade: '重试',
+      coveredLabel: '命中',
+      missedLabel: '漏了',
+      wrongLabel: '说错',
+      feedbackLabel: '反馈',
+      suggestionLabel: '优化版本的答案',
+      noPoints: '这题没有要点，无法按要点批改。',
+      supplementTitle: '补充答案',
+      supplementFill: '让 AI 补这段补充答案',
+      gradeAgain: '再答一次',
       noDefinition: '（还没有释义）',
       seenCount: '已读 %s / %s',
       flag: {
@@ -121,6 +135,20 @@ window.__ModuleLoader__.load({
       relatedBroader: 'Broader',
       relatedFill: 'Ask the AI to relate this question',
       relatedGone: 'That related question is no longer in the bank.',
+      answerLabel: 'Write your answer (you can leave it blank and read the reference first)',
+      submitGrade: 'Submit and grade',
+      gradingWait: 'Grading…',
+      gradingTimeout: 'The AI has not finished grading; retry when ready',
+      retryGrade: 'Retry',
+      coveredLabel: 'Hit',
+      missedLabel: 'Missed',
+      wrongLabel: 'Wrong',
+      feedbackLabel: 'Feedback',
+      suggestionLabel: 'A better answer',
+      noPoints: 'This question has no key points, so there is nothing to grade against.',
+      supplementTitle: 'Additional answer',
+      supplementFill: 'Ask the AI to add one',
+      gradeAgain: 'Answer again',
       noDefinition: '(no definition yet)',
       save: 'Save',
       cancel: 'Cancel',
@@ -188,6 +216,11 @@ window.__ModuleLoader__.load({
       .lc-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 0; border-bottom: 1px solid var(--dsw-alias-border-l1); }
       .lc-row:last-child { border-bottom: 0; }
       .lc-related { margin-top: 14px; display: flex; flex-direction: column; gap: 6px; }
+      .lc-answer-card { margin-top: 12px; }
+      .lc-grade { margin-top: 12px; display: flex; flex-direction: column; gap: 4px; }
+      .lc-grade-row { display: flex; gap: 6px; align-items: baseline; font-size: 13px; }
+      .lc-suggestion { margin-top: 8px; padding: 8px 10px; border: 1px dashed var(--dsw-alias-border-l2); border-radius: 8px; white-space: pre-wrap; line-height: 1.6; }
+      .lc-supplement { margin-top: 12px; display: flex; flex-direction: column; gap: 6px; }
       .lc-related-row { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
       .lc-related-label { color: var(--dsw-alias-label-secondary); font-size: 12px; margin-right: 2px; }
       .lc-flags { color: var(--dsw-alias-state-warn-primary); font-size: 12px; }
@@ -471,6 +504,10 @@ window.__ModuleLoader__.load({
       const [busy, setBusy] = useState(false)
       const [sessionsList, setSessionsList] = useState([])
       const [loaded, setLoaded] = useState(false)
+      const [answer, setAnswer] = useState('')
+      const [grading, setGrading] = useState('idle')
+      const [gradedAttempt, setGradedAttempt] = useState(null)
+      const [pendingAttemptId, setPendingAttemptId] = useState(null)
       const [history, setHistory] = useState([])
       const [revisit, setRevisit] = useState(false)
 
@@ -686,6 +723,66 @@ window.__ModuleLoader__.load({
         ask(text)
       }, [card, ask])
 
+      /** Poll one attempt until it has a grade, then stop. */
+      const pollAttempt = useCallback((attemptId, tries) => {
+        if (tries >= 45) {
+          setGrading('timeout')
+          return
+        }
+        setTimeout(async () => {
+          if (!sessionId) return
+          try {
+            const got = await request('attempt', { action: 'get', attemptId }, sessionId)
+            if (got.attempt && got.attempt.grade) {
+              setGradedAttempt(got.attempt)
+              setGrading('done')
+              return
+            }
+            pollAttempt(attemptId, tries + 1)
+          } catch {
+            setGrading('timeout')
+          }
+        }, 2000)
+      }, [sessionId])
+
+      const submitAnswer = useCallback(async () => {
+        if (!sessionId || !card || !canSubmit(card)) return
+        const text = answer.trim()
+        if (text.length === 0) return
+        setGrading('waiting')
+        try {
+          const started = await request('attempt', { action: 'start', questionId: card.id, answer: text, kind: 'study' }, sessionId)
+          setPendingAttemptId(started.attemptId)
+          await ask(`批改答题 ${started.attemptId}：先 learning_grade open 取题与答案，再 submit 写回 covered/missed/wrong/feedback/suggestion（命中率低于 0.6 时必给 suggestion）。`)
+          pollAttempt(started.attemptId, 0)
+        } catch (err) {
+          setGrading('idle')
+          fail(err)
+        }
+      }, [sessionId, card, answer, ask, pollAttempt, fail])
+
+      const retryGrading = useCallback(() => {
+        if (!pendingAttemptId) {
+          setGrading('idle')
+          return
+        }
+        setGrading('waiting')
+        ask(`批改答题 ${pendingAttemptId}：用 learning_grade open 取题与答案，再用 submit 写回覆盖/漏点/说错/反馈/优化答案。`)
+        pollAttempt(pendingAttemptId, 0)
+      }, [pendingAttemptId, ask, pollAttempt])
+
+      const fillSupplement = useCallback(() => {
+        if (!card) return
+        ask(`用 learning_question update 给题号 ${card.id} 补 reference.supplement：写面试里被追问时你会怎么讲这道题，或这道题的陷阱与常见错误；写完告诉我。`)
+      }, [card, ask])
+
+      useEffect(() => {
+        setAnswer('')
+        setGrading('idle')
+        setGradedAttempt(null)
+        setPendingAttemptId(null)
+      }, [card && card.id])
+
       const toggleFavorite = useCallback(async () => {
         if (!sessionId || !card) return
         try {
@@ -845,6 +942,19 @@ window.__ModuleLoader__.load({
               onRevisit: toggleRevisit,
               onFavorite: toggleFavorite,
             }),
+            h(AnswerCard, {
+              card,
+              t,
+              answer,
+              grading,
+              onAnswer: setAnswer,
+              onSubmit: submitAnswer,
+              onRetry: retryGrading,
+              onFillSupplement: fillSupplement,
+              gradeAttempt: gradedAttempt && card && gradedAttempt.questionId === card.id
+                ? gradedAttempt
+                : (card && card.lastAttempt && card.lastAttempt.grade ? card.lastAttempt : null),
+            }),
             h(RelatedChips, {
               card,
               t,
@@ -996,6 +1106,93 @@ window.__ModuleLoader__.load({
     }
 
     /**
+     * Whether a card can be graded: there must be key points to grade against.
+     * @param {object} card - question card.
+     * @returns {boolean} whether the submit control is allowed.
+     */
+    function canSubmit(card) {
+      const points = card && card.reference && card.reference.points
+      return Array.isArray(points) && points.length > 0
+    }
+
+    /**
+     * One graded attempt: what hit, what was missed, what was wrong, and — when
+     * the hit rate is low — a better answer to read.
+     * @param {{attempt: object, t: Function}} props - component props.
+     * @returns {object|null} React node, or null without a grade.
+     */
+    function GradeBlock({ attempt, t }) {
+      const grade = attempt && attempt.grade
+      if (!grade) return null
+      const score = typeof grade.score === 'number' ? grade.score : null
+      const showSuggestion = grade.suggestion && score !== null && score < 0.6
+      const list = (label, items) => (Array.isArray(items) && items.length > 0
+        ? h('div', { className: 'lc-grade-row' },
+          h('span', { className: 'lc-related-label' }, label),
+          h('span', null, items.join('；')))
+        : null)
+      return h('div', { className: 'lc-grade' },
+        list(t('coveredLabel'), grade.covered),
+        list(t('missedLabel'), grade.missed),
+        list(t('wrongLabel'), grade.wrong),
+        list(t('feedbackLabel'), grade.feedback ? [grade.feedback] : []),
+        showSuggestion
+          ? h('div', { className: 'lc-suggestion' },
+            h('div', { className: 'lc-related-label' }, t('suggestionLabel')),
+            h('div', null, grade.suggestion))
+          : null)
+    }
+
+    /**
+     * The reference answer's second block: an interview narrative or the
+     * pitfalls of this question. Missing text becomes a fill button.
+     * @param {{reference: object, t: Function, onFill: Function}} props - component props.
+     * @returns {object} React node.
+     */
+    function SupplementBlock({ reference, t, onFill }) {
+      const supplement = reference && typeof reference.supplement === 'string' ? reference.supplement : ''
+      return h('div', { className: 'lc-supplement' },
+        h('div', { className: 'lc-related-label' }, t('supplementTitle')),
+        supplement.length > 0
+          ? h('div', { className: 'lc-answer' }, supplement)
+          : h('button', { type: 'button', className: 'lc-btn', onClick: onFill }, t('supplementFill')))
+    }
+
+    /**
+     * The answer box under a card: type, submit for grading, read the grade.
+     * @param {object} props - component props.
+     * @returns {object} React node.
+     */
+    function AnswerCard({ card, t, answer, onAnswer, grading, gradeAttempt, onSubmit, onRetry, onFillSupplement }) {
+      const points = card && card.reference && card.reference.points
+      const hasPoints = Array.isArray(points) && points.length > 0
+      return h('div', { className: 'lc-card lc-answer-card' },
+        h('label', { className: 'lc-label' }, t('answerLabel')),
+        h('textarea', {
+          className: 'lc-input',
+          rows: 4,
+          value: answer,
+          disabled: grading === 'waiting',
+          onChange: event => onAnswer(event.target.value),
+        }),
+        h('div', { className: 'lc-actions' },
+          h('button', {
+            type: 'button',
+            className: 'lc-btn lc-btn-primary',
+            disabled: !hasPoints || answer.trim().length === 0 || grading === 'waiting',
+            onClick: onSubmit,
+          }, t('submitGrade')),
+          grading === 'waiting' ? h('span', { className: 'lc-node-sub' }, t('gradingWait')) : null,
+          grading === 'timeout'
+            ? h('button', { type: 'button', className: 'lc-btn', onClick: onRetry }, t('retryGrade'))
+            : null),
+        hasPoints ? null : h('p', { className: 'lc-node-sub' }, t('noPoints')),
+        grading === 'timeout' ? h('p', { className: 'lc-node-sub' }, t('gradingTimeout')) : null,
+        gradeAttempt ? h(GradeBlock, { attempt: gradeAttempt, t }) : null,
+        h(SupplementBlock, { reference: card.reference, t, onFill: onFillSupplement }))
+    }
+
+    /**
      * First-run form: a target is the one thing the panel cannot invent.
      * @param {{t: Function, busy: boolean, onSave: Function}} props - component props.
      * @returns {object} React node.
@@ -1069,7 +1266,7 @@ window.__ModuleLoader__.load({
         }, props => h(PanelBoundary, { t }, h(Panel, { ...props, layout, t }))))
       },
       /** Rendered-only internals, exposed so the node harness can exercise them. */
-      __test: { PanelBoundary, popoverStyle, Icon, TermPopover, isOutsidePopover, TERM_ACCENT, RelatedChips },
+      __test: { PanelBoundary, popoverStyle, Icon, TermPopover, isOutsidePopover, TERM_ACCENT, RelatedChips, GradeBlock, canSubmit },
     }
   },
 })
