@@ -6,6 +6,7 @@
  */
 
 import { readdir } from 'node:fs/promises'
+import { needsSuggestion } from './grading.js'
 import { treeView } from './views.js'
 
 /** Platform-neutral wording for the three draft files an import needs. */
@@ -153,6 +154,7 @@ export function toolDefinitions(storeFor) {
               '术语另写一行一个：{ term, definition, example? }，术语必须出现在某些题干里。',
               '每题可选给 related：questions 写题库里另一道题的题干原文（不是题号），deeper / broader 各 1-3 条你自己的问题。',
               'related 只写你确信相关的，宁少勿多；空着比凑数好。写错题干的关联会被丢弃。',
+              '写标准答案的同时补一段 supplement：面试里被追问时你会怎么讲这道题（遇到过什么问题、怎么解决的），或这道题的陷阱与常见错误；两样都能写，都不确定就留空。',
               '一次 30-60 题；写完调用 learning_import commit。commit 会新增、合并、待核对分开计数，并逐条给出原因。',
               '同一份材料重导是对账：题干相同的题会被更新而不是重复。',
             ].join('\n'),
@@ -210,5 +212,54 @@ export function toolDefinitions(storeFor) {
     },
   })
 
-  return [status, plan, importTool, question]
+  const grade = withRender({
+    name: 'learning_grade',
+    description: 'Grade one answer against the question reference. Call `open` first to read the question, its reference answer and points, and what the learner wrote; then call `submit` with your judgement. `covered`/`missed`/`wrong` are short paraphrases, never the reference text verbatim. Add `suggestion` (a better answer) whenever the hit rate is below 60%.',
+    parameters: {
+      action: { type: 'string', required: true, enum: ['open', 'submit'], description: 'open = read question + answer; submit = write the grade back.' },
+      attemptId: { type: 'string', required: true, description: 'The attempt being graded.' },
+      covered: { type: 'array', required: false, description: 'For submit: points the answer did hit, paraphrased.', items: { type: 'string' } },
+      missed: { type: 'array', required: false, description: 'For submit: points it missed.', items: { type: 'string' } },
+      wrong: { type: 'array', required: false, description: 'For submit: things the answer got wrong.', items: { type: 'string' } },
+      feedback: { type: 'string', required: false, description: 'For submit: one or two sentences of correction.' },
+      suggestion: { type: 'string', required: false, description: 'For submit: a better version of the answer; required by convention when the hit rate is below 60%.' },
+    },
+    output: {
+      schema: OBJECT_OUTPUT,
+      render: (_args, value) => text(value.score === undefined ? `题目 ${value.question.id}` : `已批改：得分 ${value.score}`),
+    },
+    async execute(args, exec) {
+      const store = await storeFor(exec.agent)
+      if (args.action === 'open') {
+        const attempt = await store.getAttempt(args.attemptId)
+        if (!attempt) throw new Error(`unknown attempt: ${String(args.attemptId)}`)
+        const { questions } = await store.load()
+        const question = questions.find(item => item.id === attempt.questionId)
+        if (!question) throw new Error(`unknown question: ${attempt.questionId}`)
+        return {
+          question: {
+            id: question.id,
+            stem: question.stem,
+            answer: question.reference && question.reference.answer ? question.reference.answer : '',
+            points: question.reference && Array.isArray(question.reference.points) ? question.reference.points : [],
+            supplement: question.reference && question.reference.supplement ? question.reference.supplement : '',
+          },
+          attempt: { id: attempt.id, kind: attempt.kind, answer: attempt.answer, at: attempt.at },
+        }
+      }
+      if (args.action === 'submit') {
+        const result = await store.gradeAttempt(args.attemptId, {
+          covered: args.covered,
+          missed: args.missed,
+          wrong: args.wrong,
+          feedback: args.feedback,
+          suggestion: args.suggestion,
+        })
+        return { ok: true, score: result.score, misses: result.misses, needsSuggestion: needsSuggestion(result.score) }
+      }
+      throw new Error(`unknown action: ${String(args.action)}`)
+    },
+  })
+
+  return [status, plan, importTool, question, grade]
 }

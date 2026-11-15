@@ -64,8 +64,8 @@ async function post(handler, body) {
 test('apply 注册四个工具、一个命令、一个路由', () => {
   const { ctx, record } = fakeCtx()
   apply(ctx, {})
-  assert.equal(record.tools.length, 4)
-  assert.deepEqual(record.tools.map(t => t.name).sort(), ['learning_import', 'learning_plan', 'learning_question', 'learning_status'])
+  assert.equal(record.tools.length, 5)
+  assert.deepEqual(record.tools.map(t => t.name).sort(), ['learning_grade', 'learning_import', 'learning_plan', 'learning_question', 'learning_status'])
   assert.equal(record.commands.length, 1)
   assert.equal(record.commands[0].name, 'learn')
   assert.equal(record.routes.length, 1)
@@ -77,8 +77,8 @@ test('apply 注册四个工具、一个命令、一个路由', () => {
 test('每个注册都挂在 ctx.effect 上，卸载时能释放', () => {
   const { ctx, record } = fakeCtx()
   apply(ctx, {})
-  // 四个工具 + 一个命令 + 一个路由，各自一个 effect
-  assert.equal(record.effects.length, 6)
+  // 五个工具 + 一个命令 + 一个路由，各自一个 effect
+  assert.equal(record.effects.length, 7)
   for (const effect of record.effects) {
     assert.equal(typeof effect.label, 'string')
     assert.equal(typeof effect.dispose, 'function')
@@ -88,7 +88,7 @@ test('每个注册都挂在 ctx.effect 上，卸载时能释放', () => {
 test('ctx 没有 effect 时仍然完成注册，不会整条插件激活失败', () => {
   const { ctx, record } = fakeCtx({ withEffect: false })
   assert.doesNotThrow(() => apply(ctx, {}))
-  assert.equal(record.tools.length, 4)
+  assert.equal(record.tools.length, 5)
   assert.equal(record.commands.length, 1)
   assert.equal(record.routes.length, 1)
   assert.equal(record.effects.length, 0)

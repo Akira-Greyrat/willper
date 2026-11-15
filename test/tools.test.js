@@ -17,7 +17,7 @@ const call = (tool, args) => tool.execute(args, { agent })
 
 test('四个工具都带 name/description/parameters/output/execute', () => {
   const defs = toolDefinitions(() => null)
-  assert.deepEqual(defs.map(d => d.name).sort(), ['learning_import', 'learning_plan', 'learning_question', 'learning_status'])
+  assert.deepEqual(defs.map(d => d.name).sort(), ['learning_grade', 'learning_import', 'learning_plan', 'learning_question', 'learning_status'])
   for (const def of defs) {
     assert.ok(def.description.length > 10)
     assert.equal(typeof def.execute, 'function')
@@ -166,5 +166,38 @@ test('未知 action 报错而不是静默成功', async () => {
   await wire(async ({ tools }) => {
     await assert.rejects(() => call(tools.learning_plan, { action: 'nope' }), /unknown action/)
     await assert.rejects(() => call(tools.learning_question, { action: 'nope' }), /unknown action/)
+  })
+})
+
+test('learning_grade open 给题目与答案，submit 写回并算分', async () => {
+  await wire(async ({ tools, store }) => {
+    await writeJsonl(store.paths.questions, [{
+      id: 'q1', key: 'k1', stem: '什么是闭包？', nodeId: 'n_1', status: 'ok', flags: [],
+      reference: { answer: '组合', points: ['a', 'b'], supplement: '面试里我会这样讲' },
+      source: { file: 'm.md' }, tags: [], related: { questions: [], deeper: [], broader: [] }, createdAt: 'T0', updatedAt: 'T0',
+    }])
+    const attempt = await store.createAttempt({ questionId: 'q1', answer: '我答了 a', kind: 'study' })
+    const open = await call(tools.learning_grade, { action: 'open', attemptId: attempt.id })
+    assert.deepEqual(open.question.points, ['a', 'b'])
+    assert.equal(open.question.supplement, '面试里我会这样讲')
+    assert.equal(open.attempt.answer, '我答了 a')
+
+    const submit = await call(tools.learning_grade, { action: 'submit', attemptId: attempt.id, covered: ['a'], missed: ['b'] })
+    assert.equal(submit.score, 0.5)
+    assert.equal(submit.needsSuggestion, true)
+    assert.equal((await store.getAttempt(attempt.id)).grade.score, 0.5)
+  })
+})
+
+test('learning_grade open 对未知 attempt 报错', async () => {
+  await wire(async ({ tools }) => {
+    await assert.rejects(() => call(tools.learning_grade, { action: 'open', attemptId: 'a_nope' }), /unknown attempt/)
+  })
+})
+
+test('brief 要求写补充答案', async () => {
+  await wire(async ({ tools }) => {
+    const r = await call(tools.learning_import, { action: 'brief' })
+    assert.ok(r.instructions.includes('supplement'))
   })
 })
