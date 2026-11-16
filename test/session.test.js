@@ -14,6 +14,7 @@ test('按会话 id 找到 agent 并投递一条用户消息', async () => {
   const prompt = createPromptAgent(ctx)
   assert.equal(await prompt('s_1', '解释闭包'), true)
   assert.equal(sent.length, 1)
+  assert.match(sent[0].id, /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i)
   assert.equal(sent[0].role, 'user')
   assert.deepEqual(sent[0].content, [{ type: 'text', text: '解释闭包' }])
   assert.deepEqual(sent[0].source, { kind: 'user' })
