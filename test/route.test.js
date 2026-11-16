@@ -347,3 +347,29 @@ test('meta 返回的阶段带 id 与知识点标题', async () => {
     assert.deepEqual(got.body.plan[0].nodeTitles, ['基础'])
   })
 })
+test('settings 读写并夹紧取值', async () => {
+  await withApi(async ({ handler, store }) => {
+    const before = await callApi(handler, { op: 'settings', sessionId: 's1' })
+    assert.equal(before.status, 200)
+    assert.equal(typeof before.body.settings.leavePromptRate, 'number')
+
+    const saved = await callApi(handler, { op: 'setSettings', sessionId: 's1', params: { leavePromptRate: 1.7, quizCooldownMinutes: -3, autoAcceptDrafts: true } })
+    assert.equal(saved.status, 200)
+    assert.equal(saved.body.settings.leavePromptRate, 1)
+    assert.equal(saved.body.settings.quizCooldownMinutes, 0)
+    assert.equal(saved.body.settings.autoAcceptDrafts, true)
+
+    const persisted = (await store.load()).meta.settings
+    assert.equal(persisted.leavePromptRate, 1)
+    assert.equal(persisted.autoAcceptDrafts, true)
+  })
+})
+
+test('setSettings 忽略未知字段，不写入 gradingMode', async () => {
+  await withApi(async ({ handler, store }) => {
+    await callApi(handler, { op: 'setSettings', sessionId: 's1', params: { gradingMode: 'manual', leavePromptRate: 0.5 } })
+    const settings = (await store.load()).meta.settings
+    assert.equal(settings.leavePromptRate, 0.5)
+    assert.equal(settings.gradingMode, 'ai')
+  })
+})

@@ -541,3 +541,33 @@ test('旧的 revisit 命名没有残留碎片', async () => {
   assert.equal(/evisit/i.test(source), false, ' leftovers of the old "revisit" name')
   assert.equal(/\bnextMode\b/.test(source), false)
 })
+test('设置页渲染三个设置项与保存按钮', async () => {
+  const { module } = await loadClient()
+  const Form = module.__test && module.__test.SettingsForm
+  assert.equal(typeof Form, 'function')
+  const changes = []
+  const tree = Form({
+    settings: { leavePromptRate: 0.15, quizCooldownMinutes: 10, autoAcceptDrafts: false },
+    t: key => key,
+    onChange: patch => changes.push(patch),
+    onSave: () => changes.push('save'),
+  })
+  const text = JSON.stringify(tree)
+  assert.ok(text.includes('leavePromptRate'))
+  assert.ok(text.includes('quizCooldownMinutes'))
+  assert.ok(text.includes('autoAcceptDrafts'))
+  const nodes = []
+  const walk = node => {
+    if (Array.isArray(node)) { for (const item of node) walk(item); return }
+    if (!node || typeof node !== 'object') return
+    nodes.push(node)
+    for (const child of node.children ?? []) walk(child)
+  }
+  walk(tree)
+  assert.equal(nodes.filter(node => node.type === 'input' && node.props.type === 'number').length, 2)
+  assert.equal(nodes.filter(node => node.type === 'input' && node.props.type === 'checkbox').length, 1)
+  const save = nodes.find(node => node.type === 'button')
+  assert.ok(save)
+  save.props.onClick()
+  assert.deepEqual(changes, ['save'])
+})

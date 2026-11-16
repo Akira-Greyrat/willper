@@ -43,6 +43,12 @@ window.__ModuleLoader__.load({
       allSeen: '这个知识点的题都读过了。',
       onlyUnseen: '只看未过',
       seenBadge: '已过',
+      settings: '设置',
+      settingsTitle: '学习设置',
+      leavePromptRate: '抽查概率（0-1）',
+      quizCooldownMinutes: '抽查冷却（分钟）',
+      autoAcceptDrafts: '自动接受草稿（不建议）',
+      settingsSaved: '设置已保存',
       prev: '上一题',
       save: '保存',
       cancel: '取消',
@@ -154,6 +160,12 @@ window.__ModuleLoader__.load({
       allSeen: 'You have read every question under this topic.',
       onlyUnseen: 'Only new',
       seenBadge: 'Passed',
+      settings: 'Settings',
+      settingsTitle: 'Study settings',
+      leavePromptRate: 'Leave-quiz chance (0-1)',
+      quizCooldownMinutes: 'Quiz cooldown (minutes)',
+      autoAcceptDrafts: 'Auto-accept drafts (not recommended)',
+      settingsSaved: 'Settings saved',
       prev: 'Previous',
       needsReview: 'Needs review',
       accept: 'Accept',
@@ -587,6 +599,7 @@ window.__ModuleLoader__.load({
       const [referencePoints, setReferencePoints] = useState('')
       const [focusAnswer, setFocusAnswer] = useState(false)
       const answerRef = useRef(null)
+      const [settings, setSettings] = useState(null)
       const [history, setHistory] = useState([])
       const [onlyUnseen, setOnlyUnseen] = useState(false)
 
@@ -693,6 +706,7 @@ window.__ModuleLoader__.load({
           if (tab === 'bank') setChecklist(await request('checklist', {}, sessionId))
           if (tab === 'favorite') setFavorites(await request('favorites', {}, sessionId))
           if (tab === 'report') setReport((await request('report', {}, sessionId)).report ?? null)
+          if (tab === 'settings') setSettings((await request('settings', {}, sessionId)).settings)
           if (tab === 'study') {
             // Keep the reader where they were: refresh the open card, only fall
             // back to the queue head when no card is open.
@@ -1074,6 +1088,7 @@ window.__ModuleLoader__.load({
           if (name === 'favorite') setFavorites(await request('favorites', {}, sessionId))
           if (name === 'weak') await loadWeak()
           if (name === 'plan') setMeta(await request('meta', {}, sessionId))
+          if (name === 'settings') setSettings((await request('settings', {}, sessionId)).settings)
           if (name === 'report') await loadReport()
           setError(null)
         } catch (err) {
@@ -1121,7 +1136,7 @@ window.__ModuleLoader__.load({
             h('p', { className: 'lc-node-sub' }, loaded ? t('sessionMissing') : t('loading'))))
       }
 
-      const tabs = ['study', 'bank', 'weak', 'favorite', 'plan', 'report']
+      const tabs = ['study', 'bank', 'weak', 'favorite', 'plan', 'report', 'settings']
 
       const hasTarget = Boolean(meta && meta.target)
       const hasTree = tree.length > 0
@@ -1332,6 +1347,10 @@ window.__ModuleLoader__.load({
         ? h(ReportPane, { report, t, onAsk: ask })
         : null
 
+      const settingsPane = tab === 'settings'
+        ? h(SettingsForm, { settings, t, onChange: changeSettings, onSave: saveSettings })
+        : null
+
       const mainPane = h('div', { className: 'lc-main' },
         hasTarget ? null : h(EmptyState, { t, busy, onSave: saveTarget }),
         hasTarget && !hasTree
@@ -1347,7 +1366,8 @@ window.__ModuleLoader__.load({
         weakPane,
         favoritesPane,
         planPane,
-        reportPane)
+        reportPane,
+        settingsPane)
 
       return h('div', { className: 'lc-root' }, head, toastRow, errorRow,
         h('div', { className: 'lc-body' }, treePane, mainPane),
@@ -1748,6 +1768,39 @@ window.__ModuleLoader__.load({
     }
 
     /**
+     * The settings page: three knobs the panel may write, saved in one go.
+     * @param {object} props - component props.
+     * @returns {object} React node.
+     */
+    function SettingsForm({ settings, t, onChange, onSave }) {
+      const values = settings ?? {}
+      const number = (label, key, min, max, step) => h('div', { className: 'lc-meta' },
+        h('label', null, `${t(label)}`),
+        h('input', {
+          type: 'number',
+          className: 'lc-input',
+          min,
+          max,
+          step,
+          value: values[key] ?? '',
+          onChange: event => onChange({ [key]: Number(event.target.value) }),
+        }))
+      return h('div', { className: 'lc-card' },
+        h('h2', { className: 'lc-cardTitle' }, t('settingsTitle')),
+        number('leavePromptRate', 'leavePromptRate', 0, 1, 0.05),
+        number('quizCooldownMinutes', 'quizCooldownMinutes', 0, 1440, 1),
+        h('label', { className: 'lc-meta' },
+          h('input', {
+            type: 'checkbox',
+            checked: Boolean(values.autoAcceptDrafts),
+            onChange: event => onChange({ autoAcceptDrafts: event.target.checked }),
+          }),
+          ` ${t('autoAcceptDrafts')}`),
+        h('div', { className: 'lc-actions' },
+          h('button', { type: 'button', className: 'lc-btn lc-btn-primary', onClick: onSave }, t('save'))))
+    }
+
+    /**
      * The plan page: one block per stage, three status buttons.
      * @param {object} props - component props.
      * @returns {object} React node.
@@ -1878,7 +1931,7 @@ window.__ModuleLoader__.load({
         }, props => h(PanelBoundary, { t }, h(Panel, { ...props, layout, t }))))
       },
       /** Rendered-only internals, exposed so the node harness can exercise them. */
-      __test: { PanelBoundary, popoverStyle, Icon, TermPopover, isOutsidePopover, TERM_ACCENT, RelatedChips, GradeBlock, canSubmit, QuizModal, WeakList, QuestionCard, SupplementBlock, gradingStateFor, stillPending, PlanList, ReportPane, stagesFrom, formatWhen, ReferenceBlock, referencePatch },
+      __test: { PanelBoundary, popoverStyle, Icon, TermPopover, isOutsidePopover, TERM_ACCENT, RelatedChips, GradeBlock, canSubmit, QuizModal, WeakList, QuestionCard, SupplementBlock, gradingStateFor, stillPending, PlanList, ReportPane, stagesFrom, formatWhen, ReferenceBlock, referencePatch, SettingsForm },
     }
   },
 })

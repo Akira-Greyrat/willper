@@ -5,6 +5,7 @@
  * @module @local/learning-center/src/route
  */
 
+import { normalizeSettingsPatch } from './settings.js'
 import { checklistView, favoritesView, planView, queueView, questionView, treeView, weakView } from './views.js'
 
 /**
@@ -226,6 +227,14 @@ async function dispatch(op, params, sessionId, store, promptAgent, listSessions)
     }
     case 'report': {
       return { report: await store.latestReport() }
+    }
+    case 'settings': {
+      return { settings: await store.loadSettings() }
+    }
+    case 'setSettings': {
+      const patch = normalizeSettingsPatch(params)
+      const settings = await store.saveSettings(patch)
+      return { ok: true, settings }
     }
     case 'prompt': {
       if (typeof params.text !== 'string' || params.text.trim().length === 0) {
